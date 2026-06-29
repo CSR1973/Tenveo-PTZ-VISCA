@@ -1,8 +1,5 @@
 import * as C from './commands.js'
 
-/**
- * Helper: builds a "speed" dropdown choices array.
- */
 const speedChoices = (min, max) =>
 	Array.from({ length: max - min + 1 }, (_, i) => ({ id: min + i, label: String(min + i) }))
 
@@ -10,13 +7,7 @@ const PAN_SPEEDS = speedChoices(1, 24)
 const TILT_SPEEDS = speedChoices(1, 20)
 const ZOOM_SPEEDS = speedChoices(0, 7)
 
-/* ─── Encoder helpers ─────────────────────────────────────────────── */
-
-/**
- * Send a directional move and auto-stop after `holdMs`. Re-triggering
- * during the hold extends the timer (so continuous encoder rotation =
- * continuous motion).
- */
+/** Auto-stop pulse helper for hold-style rotary actions. */
 function pulse(self, key, cmd, stopCmd, holdMs) {
 	if (self._pulseTimers[key]) clearTimeout(self._pulseTimers[key])
 	self.send(cmd())
@@ -26,65 +17,71 @@ function pulse(self, key, cmd, stopCmd, holdMs) {
 	}, holdMs)
 }
 
+/** Read calibrated units-per-degree from config (default 14). */
+const upd = (self) => Math.max(1, +self.config.unitsPerDegree || 14)
+
 export function getActions(self) {
 	return {
-		/* ───────── Pan / Tilt ───────── */
+		/* ───────── Pan / Tilt drive (hold style) ───────── */
 		pt_up: {
-			name: 'Pan/Tilt: Up',
+			name: 'Pan/Tilt: Up (hold)',
 			options: [
 				{ type: 'dropdown', id: 'tilt', label: 'Tilt Speed', default: self.config.tiltSpeed || 10, choices: TILT_SPEEDS },
 			],
 			callback: async ({ options }) => self.send(C.ptDrive(C.PT_DIR.UP, self.config.panSpeed, +options.tilt)),
 		},
 		pt_down: {
-			name: 'Pan/Tilt: Down',
+			name: 'Pan/Tilt: Down (hold)',
 			options: [
 				{ type: 'dropdown', id: 'tilt', label: 'Tilt Speed', default: self.config.tiltSpeed || 10, choices: TILT_SPEEDS },
 			],
 			callback: async ({ options }) => self.send(C.ptDrive(C.PT_DIR.DOWN, self.config.panSpeed, +options.tilt)),
 		},
 		pt_left: {
-			name: 'Pan/Tilt: Left',
+			name: 'Pan/Tilt: Left (hold)',
 			options: [
 				{ type: 'dropdown', id: 'pan', label: 'Pan Speed', default: self.config.panSpeed || 12, choices: PAN_SPEEDS },
 			],
 			callback: async ({ options }) => self.send(C.ptDrive(C.PT_DIR.LEFT, +options.pan, self.config.tiltSpeed)),
 		},
 		pt_right: {
-			name: 'Pan/Tilt: Right',
+			name: 'Pan/Tilt: Right (hold)',
 			options: [
 				{ type: 'dropdown', id: 'pan', label: 'Pan Speed', default: self.config.panSpeed || 12, choices: PAN_SPEEDS },
 			],
 			callback: async ({ options }) => self.send(C.ptDrive(C.PT_DIR.RIGHT, +options.pan, self.config.tiltSpeed)),
 		},
-		pt_up_left: {
-			name: 'Pan/Tilt: Up-Left',
-			options: [],
-			callback: async () => self.send(C.ptDrive(C.PT_DIR.UP_LEFT, self.config.panSpeed, self.config.tiltSpeed)),
-		},
-		pt_up_right: {
-			name: 'Pan/Tilt: Up-Right',
-			options: [],
-			callback: async () => self.send(C.ptDrive(C.PT_DIR.UP_RIGHT, self.config.panSpeed, self.config.tiltSpeed)),
-		},
-		pt_down_left: {
-			name: 'Pan/Tilt: Down-Left',
-			options: [],
-			callback: async () => self.send(C.ptDrive(C.PT_DIR.DOWN_LEFT, self.config.panSpeed, self.config.tiltSpeed)),
-		},
-		pt_down_right: {
-			name: 'Pan/Tilt: Down-Right',
-			options: [],
-			callback: async () => self.send(C.ptDrive(C.PT_DIR.DOWN_RIGHT, self.config.panSpeed, self.config.tiltSpeed)),
-		},
+		pt_up_left:    { name: 'Pan/Tilt: Up-Left (hold)',    options: [], callback: async () => self.send(C.ptDrive(C.PT_DIR.UP_LEFT,    self.config.panSpeed, self.config.tiltSpeed)) },
+		pt_up_right:   { name: 'Pan/Tilt: Up-Right (hold)',   options: [], callback: async () => self.send(C.ptDrive(C.PT_DIR.UP_RIGHT,   self.config.panSpeed, self.config.tiltSpeed)) },
+		pt_down_left:  { name: 'Pan/Tilt: Down-Left (hold)',  options: [], callback: async () => self.send(C.ptDrive(C.PT_DIR.DOWN_LEFT,  self.config.panSpeed, self.config.tiltSpeed)) },
+		pt_down_right: { name: 'Pan/Tilt: Down-Right (hold)', options: [], callback: async () => self.send(C.ptDrive(C.PT_DIR.DOWN_RIGHT, self.config.panSpeed, self.config.tiltSpeed)) },
 		pt_stop: { name: 'Pan/Tilt: Stop', options: [], callback: async () => self.send(C.ptDrive(C.PT_DIR.STOP)) },
-		pt_home: { name: 'Pan/Tilt: Home', options: [], callback: async () => self.send(C.ptHome()) },
-		pt_reset: { name: 'Pan/Tilt: Reset', options: [], callback: async () => self.send(C.ptReset()) },
+
+		pt_home: {
+			name: 'Pan/Tilt: Home (true center 0,0)',
+			options: [],
+			callback: async () => {
+				await self.send(C.ptAbsolute(0, 0, self.config.panSpeed || 12, self.config.tiltSpeed || 10))
+				self.state.panDeg = 0
+				self.state.tiltDeg = 0
+				self.setVariableValues({ pan_degrees: '0.0', tilt_degrees: '0.0' })
+			},
+		},
+		pt_reset: {
+			name: 'Pan/Tilt: Reset',
+			options: [],
+			callback: async () => {
+				await self.send(C.ptReset())
+				self.state.panDeg = 0
+				self.state.tiltDeg = 0
+				self.setVariableValues({ pan_degrees: '0.0', tilt_degrees: '0.0' })
+			},
+		},
 		pt_absolute: {
-			name: 'Pan/Tilt: Absolute Position',
+			name: 'Pan/Tilt: Absolute Position (raw units)',
 			options: [
-				{ type: 'number', id: 'pan', label: 'Pan (-2448..2448)', default: 0, min: -32768, max: 32767 },
-				{ type: 'number', id: 'tilt', label: 'Tilt (-1356..1356)', default: 0, min: -32768, max: 32767 },
+				{ type: 'number', id: 'pan', label: 'Pan (-32768..32767)', default: 0, min: -32768, max: 32767 },
+				{ type: 'number', id: 'tilt', label: 'Tilt (-32768..32767)', default: 0, min: -32768, max: 32767 },
 				{ type: 'dropdown', id: 'panSpeed', label: 'Pan Speed', default: self.config.panSpeed || 12, choices: PAN_SPEEDS },
 				{ type: 'dropdown', id: 'tiltSpeed', label: 'Tilt Speed', default: self.config.tiltSpeed || 10, choices: TILT_SPEEDS },
 			],
@@ -92,42 +89,92 @@ export function getActions(self) {
 				self.send(C.ptAbsolute(+options.pan, +options.tilt, +options.panSpeed, +options.tiltSpeed)),
 		},
 
-		/* ── Pan/Tilt rotary (encoder) ── */
+		/* ───────── Pan / Tilt rotary HOLD (auto-stop after rotation halts) ───────── */
 		pan_rotary_left: {
-			name: 'Rotary: Pan Left (Stream Deck +)',
+			name: 'Rotary HOLD: Pan Left (Stream Deck +)',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Speed', default: self.config.panSpeed || 12, choices: PAN_SPEEDS },
 				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 180, min: 80, max: 2000 },
 			],
 			callback: async ({ options }) =>
-				pulse(self, 'pan', () => C.ptDrive(C.PT_DIR.LEFT, +options.speed, self.config.tiltSpeed), C.ptDrive.bind(null, C.PT_DIR.STOP), +options.holdMs),
+				pulse(self, 'pan', () => C.ptDrive(C.PT_DIR.LEFT, +options.speed, self.config.tiltSpeed), () => C.ptDrive(C.PT_DIR.STOP), +options.holdMs),
 		},
 		pan_rotary_right: {
-			name: 'Rotary: Pan Right (Stream Deck +)',
+			name: 'Rotary HOLD: Pan Right (Stream Deck +)',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Speed', default: self.config.panSpeed || 12, choices: PAN_SPEEDS },
 				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 180, min: 80, max: 2000 },
 			],
 			callback: async ({ options }) =>
-				pulse(self, 'pan', () => C.ptDrive(C.PT_DIR.RIGHT, +options.speed, self.config.tiltSpeed), C.ptDrive.bind(null, C.PT_DIR.STOP), +options.holdMs),
+				pulse(self, 'pan', () => C.ptDrive(C.PT_DIR.RIGHT, +options.speed, self.config.tiltSpeed), () => C.ptDrive(C.PT_DIR.STOP), +options.holdMs),
 		},
 		tilt_rotary_up: {
-			name: 'Rotary: Tilt Up (Stream Deck +)',
+			name: 'Rotary HOLD: Tilt Up (Stream Deck +)',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Speed', default: self.config.tiltSpeed || 10, choices: TILT_SPEEDS },
 				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 180, min: 80, max: 2000 },
 			],
 			callback: async ({ options }) =>
-				pulse(self, 'tilt', () => C.ptDrive(C.PT_DIR.UP, self.config.panSpeed, +options.speed), C.ptDrive.bind(null, C.PT_DIR.STOP), +options.holdMs),
+				pulse(self, 'tilt', () => C.ptDrive(C.PT_DIR.UP, self.config.panSpeed, +options.speed), () => C.ptDrive(C.PT_DIR.STOP), +options.holdMs),
 		},
 		tilt_rotary_down: {
-			name: 'Rotary: Tilt Down (Stream Deck +)',
+			name: 'Rotary HOLD: Tilt Down (Stream Deck +)',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Speed', default: self.config.tiltSpeed || 10, choices: TILT_SPEEDS },
 				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 180, min: 80, max: 2000 },
 			],
 			callback: async ({ options }) =>
-				pulse(self, 'tilt', () => C.ptDrive(C.PT_DIR.DOWN, self.config.panSpeed, +options.speed), C.ptDrive.bind(null, C.PT_DIR.STOP), +options.holdMs),
+				pulse(self, 'tilt', () => C.ptDrive(C.PT_DIR.DOWN, self.config.panSpeed, +options.speed), () => C.ptDrive(C.PT_DIR.STOP), +options.holdMs),
+		},
+
+		/* ───────── Pan / Tilt rotary STEP (precise 1°/click — recommended for Stream Deck +) ───────── */
+		pan_step_left: {
+			name: 'Rotary STEP: Pan Left (° per click)',
+			options: [
+				{ type: 'number', id: 'deg', label: 'Degrees per click', default: 1, min: 0.1, max: 30, step: 0.1 },
+				{ type: 'dropdown', id: 'speed', label: 'Move speed', default: self.config.panSpeed || 12, choices: PAN_SPEEDS },
+			],
+			callback: async ({ options }) => {
+				await self.send(C.ptRelative(-Math.round(+options.deg * upd(self)), 0, +options.speed, self.config.tiltSpeed))
+				self.state.panDeg = (self.state.panDeg || 0) - (+options.deg)
+				self.setVariableValues({ pan_degrees: self.state.panDeg.toFixed(1) })
+			},
+		},
+		pan_step_right: {
+			name: 'Rotary STEP: Pan Right (° per click)',
+			options: [
+				{ type: 'number', id: 'deg', label: 'Degrees per click', default: 1, min: 0.1, max: 30, step: 0.1 },
+				{ type: 'dropdown', id: 'speed', label: 'Move speed', default: self.config.panSpeed || 12, choices: PAN_SPEEDS },
+			],
+			callback: async ({ options }) => {
+				await self.send(C.ptRelative(Math.round(+options.deg * upd(self)), 0, +options.speed, self.config.tiltSpeed))
+				self.state.panDeg = (self.state.panDeg || 0) + (+options.deg)
+				self.setVariableValues({ pan_degrees: self.state.panDeg.toFixed(1) })
+			},
+		},
+		tilt_step_up: {
+			name: 'Rotary STEP: Tilt Up (° per click)',
+			options: [
+				{ type: 'number', id: 'deg', label: 'Degrees per click', default: 1, min: 0.1, max: 30, step: 0.1 },
+				{ type: 'dropdown', id: 'speed', label: 'Move speed', default: self.config.tiltSpeed || 10, choices: TILT_SPEEDS },
+			],
+			callback: async ({ options }) => {
+				await self.send(C.ptRelative(0, Math.round(+options.deg * upd(self)), self.config.panSpeed, +options.speed))
+				self.state.tiltDeg = (self.state.tiltDeg || 0) + (+options.deg)
+				self.setVariableValues({ tilt_degrees: self.state.tiltDeg.toFixed(1) })
+			},
+		},
+		tilt_step_down: {
+			name: 'Rotary STEP: Tilt Down (° per click)',
+			options: [
+				{ type: 'number', id: 'deg', label: 'Degrees per click', default: 1, min: 0.1, max: 30, step: 0.1 },
+				{ type: 'dropdown', id: 'speed', label: 'Move speed', default: self.config.tiltSpeed || 10, choices: TILT_SPEEDS },
+			],
+			callback: async ({ options }) => {
+				await self.send(C.ptRelative(0, -Math.round(+options.deg * upd(self)), self.config.panSpeed, +options.speed))
+				self.state.tiltDeg = (self.state.tiltDeg || 0) - (+options.deg)
+				self.setVariableValues({ tilt_degrees: self.state.tiltDeg.toFixed(1) })
+			},
 		},
 
 		/* ───────── Zoom ───────── */
@@ -148,7 +195,7 @@ export function getActions(self) {
 			callback: async ({ options }) => self.send(C.zoomDirect(+options.pos)),
 		},
 		zoom_rotary_in: {
-			name: 'Rotary: Zoom In (Stream Deck +)',
+			name: 'Rotary HOLD: Zoom In',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Speed', default: self.config.zoomSpeed || 4, choices: ZOOM_SPEEDS },
 				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 160, min: 80, max: 2000 },
@@ -156,7 +203,7 @@ export function getActions(self) {
 			callback: async ({ options }) => pulse(self, 'zoom', () => C.zoomTeleVar(+options.speed), C.zoomStop, +options.holdMs),
 		},
 		zoom_rotary_out: {
-			name: 'Rotary: Zoom Out (Stream Deck +)',
+			name: 'Rotary HOLD: Zoom Out',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Speed', default: self.config.zoomSpeed || 4, choices: ZOOM_SPEEDS },
 				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 160, min: 80, max: 2000 },
@@ -188,7 +235,7 @@ export function getActions(self) {
 			callback: async ({ options }) => self.send(C.focusDirect(+options.pos)),
 		},
 		focus_rotary_near: {
-			name: 'Rotary: Focus Near (Stream Deck +)',
+			name: 'Rotary HOLD: Focus Near',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Speed', default: 4, choices: ZOOM_SPEEDS },
 				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 160, min: 80, max: 2000 },
@@ -196,7 +243,7 @@ export function getActions(self) {
 			callback: async ({ options }) => pulse(self, 'focus', () => C.focusNearVar(+options.speed), C.focusStop, +options.holdMs),
 		},
 		focus_rotary_far: {
-			name: 'Rotary: Focus Far (Stream Deck +)',
+			name: 'Rotary HOLD: Focus Far',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Speed', default: 4, choices: ZOOM_SPEEDS },
 				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 160, min: 80, max: 2000 },
@@ -204,44 +251,66 @@ export function getActions(self) {
 			callback: async ({ options }) => pulse(self, 'focus', () => C.focusFarVar(+options.speed), C.focusStop, +options.holdMs),
 		},
 
-		/* ───────── Presets ───────── */
+		/* ───────── Presets (ONVIF on Tenveo NDI — VISCA presets silently fail) ───────── */
 		preset_recall: {
-			name: 'Preset: Recall',
-			options: [{ type: 'number', id: 'n', label: 'Preset (1-255)', default: 1, min: 0, max: 255 }],
+			name: 'Preset: Recall (via ONVIF)',
+			options: [{ type: 'number', id: 'n', label: 'Preset (1-255)', default: 1, min: 1, max: 255 }],
 			callback: async ({ options }) => {
-				await self.send(C.presetRecall(+options.n))
-				self.state.lastPreset = +options.n
-				self.setVariableValues({ last_preset: self.state.lastPreset })
-				self.checkFeedbacks('preset_recalled')
+				if (!self.onvif) return self.log('warn', 'ONVIF not initialised')
+				try {
+					await self.onvif.gotoPreset(String(+options.n))
+					self.state.lastPreset = +options.n
+					self.setVariableValues({ last_preset: self.state.lastPreset })
+					self.checkFeedbacks('preset_recalled')
+				} catch (e) {
+					self.log('error', `ONVIF GotoPreset ${options.n}: ${e.message}`)
+				}
 			},
 		},
 		preset_recall_var: {
-			name: 'Preset: Recall (from variable)',
+			name: 'Preset: Recall (from variable, via ONVIF)',
 			options: [{ type: 'textinput', id: 'expr', label: 'Preset (expression)', default: '1', useVariables: true }],
 			callback: async ({ options }, ctx) => {
 				const raw = await ctx.parseVariablesInString(options.expr)
 				const n = parseInt(raw, 10)
 				if (Number.isNaN(n)) return self.log('warn', `Invalid preset expression: ${raw}`)
-				await self.send(C.presetRecall(n))
-				self.state.lastPreset = n
-				self.setVariableValues({ last_preset: n })
-				self.checkFeedbacks('preset_recalled')
+				if (!self.onvif) return self.log('warn', 'ONVIF not initialised')
+				try {
+					await self.onvif.gotoPreset(String(n))
+					self.state.lastPreset = n
+					self.setVariableValues({ last_preset: n })
+					self.checkFeedbacks('preset_recalled')
+				} catch (e) {
+					self.log('error', `ONVIF GotoPreset ${n}: ${e.message}`)
+				}
 			},
 		},
 		preset_save: {
-			name: 'Preset: Save',
-			options: [{ type: 'number', id: 'n', label: 'Preset (1-255)', default: 1, min: 0, max: 255 }],
-			callback: async ({ options }) => self.send(C.presetSet(+options.n)),
+			name: 'Preset: Save (via ONVIF)',
+			options: [
+				{ type: 'number', id: 'n', label: 'Preset (1-255)', default: 1, min: 1, max: 255 },
+				{ type: 'textinput', id: 'name', label: 'Preset name (optional)', default: '' },
+			],
+			callback: async ({ options }) => {
+				if (!self.onvif) return self.log('warn', 'ONVIF not initialised')
+				try {
+					await self.onvif.setPreset(String(+options.n), options.name || `Preset ${options.n}`)
+				} catch (e) {
+					self.log('error', `ONVIF SetPreset ${options.n}: ${e.message}`)
+				}
+			},
 		},
 		preset_clear: {
-			name: 'Preset: Clear',
-			options: [{ type: 'number', id: 'n', label: 'Preset (1-255)', default: 1, min: 0, max: 255 }],
-			callback: async ({ options }) => self.send(C.presetReset(+options.n)),
-		},
-		preset_recall_speed: {
-			name: 'Preset: Set Recall Speed',
-			options: [{ type: 'number', id: 'speed', label: 'Speed (1-24)', default: 12, min: 1, max: 24 }],
-			callback: async ({ options }) => self.send(C.presetRecallSpeed(+options.speed)),
+			name: 'Preset: Clear (via ONVIF)',
+			options: [{ type: 'number', id: 'n', label: 'Preset (1-255)', default: 1, min: 1, max: 255 }],
+			callback: async ({ options }) => {
+				if (!self.onvif) return self.log('warn', 'ONVIF not initialised')
+				try {
+					await self.onvif.removePreset(String(+options.n))
+				} catch (e) {
+					self.log('error', `ONVIF RemovePreset ${options.n}: ${e.message}`)
+				}
+			},
 		},
 
 		/* ───────── Power / OSD / IR ───────── */
@@ -292,16 +361,9 @@ export function getActions(self) {
 			options: [{ type: 'number', id: 'v', label: 'Value', default: 7, min: 0, max: 13 }],
 			callback: async ({ options }) => self.send(C.irisDirect(+options.v)),
 		},
-		iris_rotary_up: {
-			name: 'Rotary: Iris Up (Stream Deck +)',
-			options: [],
-			callback: async () => self.send(C.irisUp()),
-		},
-		iris_rotary_down: {
-			name: 'Rotary: Iris Down (Stream Deck +)',
-			options: [],
-			callback: async () => self.send(C.irisDown()),
-		},
+		iris_rotary_up:   { name: 'Rotary STEP: Iris Up',   options: [], callback: async () => self.send(C.irisUp()) },
+		iris_rotary_down: { name: 'Rotary STEP: Iris Down', options: [], callback: async () => self.send(C.irisDown()) },
+
 		shutter_up: { name: 'Shutter: Up', options: [], callback: async () => self.send(C.shutterUp()) },
 		shutter_down: { name: 'Shutter: Down', options: [], callback: async () => self.send(C.shutterDown()) },
 		shutter_reset: { name: 'Shutter: Reset', options: [], callback: async () => self.send(C.shutterReset()) },
@@ -310,22 +372,15 @@ export function getActions(self) {
 			options: [{ type: 'number', id: 'v', label: 'Value', default: 11, min: 0, max: 21 }],
 			callback: async ({ options }) => self.send(C.shutterDirect(+options.v)),
 		},
-		shutter_rotary_up: {
-			name: 'Rotary: Shutter Up (Stream Deck +)',
-			options: [],
-			callback: async () => self.send(C.shutterUp()),
-		},
-		shutter_rotary_down: {
-			name: 'Rotary: Shutter Down (Stream Deck +)',
-			options: [],
-			callback: async () => self.send(C.shutterDown()),
-		},
+		shutter_rotary_up:   { name: 'Rotary STEP: Shutter Up',   options: [], callback: async () => self.send(C.shutterUp()) },
+		shutter_rotary_down: { name: 'Rotary STEP: Shutter Down', options: [], callback: async () => self.send(C.shutterDown()) },
+
 		gain_up: { name: 'Gain: Up', options: [], callback: async () => self.send(C.gainUp()) },
 		gain_down: { name: 'Gain: Down', options: [], callback: async () => self.send(C.gainDown()) },
 		gain_reset: { name: 'Gain: Reset', options: [], callback: async () => self.send(C.gainReset()) },
 		gain_direct: {
 			name: 'Gain: Direct Value (0-14)',
-			options: [{ type: 'number', id: 'v', label: 'Value (0=−3dB … 14=+39dB)', default: 4, min: 0, max: 14 }],
+			options: [{ type: 'number', id: 'v', label: 'Value', default: 4, min: 0, max: 14 }],
 			callback: async ({ options }) => self.send(C.gainDirect(+options.v)),
 		},
 		gain_limit: {
@@ -333,16 +388,9 @@ export function getActions(self) {
 			options: [{ type: 'number', id: 'v', label: 'Limit (4-15)', default: 9, min: 4, max: 15 }],
 			callback: async ({ options }) => self.send(C.gainLimit(+options.v)),
 		},
-		gain_rotary_up: {
-			name: 'Rotary: Gain Up (Stream Deck +)',
-			options: [],
-			callback: async () => self.send(C.gainUp()),
-		},
-		gain_rotary_down: {
-			name: 'Rotary: Gain Down (Stream Deck +)',
-			options: [],
-			callback: async () => self.send(C.gainDown()),
-		},
+		gain_rotary_up:   { name: 'Rotary STEP: Gain Up',   options: [], callback: async () => self.send(C.gainUp()) },
+		gain_rotary_down: { name: 'Rotary STEP: Gain Down', options: [], callback: async () => self.send(C.gainDown()) },
+
 		bright_up: { name: 'Bright: Up', options: [], callback: async () => self.send(C.brightUp()) },
 		bright_down: { name: 'Bright: Down', options: [], callback: async () => self.send(C.brightDown()) },
 		bright_direct: {
@@ -399,9 +447,35 @@ export function getActions(self) {
 			callback: async ({ options }) => self.send(C.bGainDirect(+options.v)),
 		},
 		color_temp_direct: {
-			name: 'WB: Color Temperature (K)',
+			name: 'WB: Color Temperature (K) — set absolute',
 			options: [{ type: 'number', id: 'k', label: 'Kelvin (2500-8000)', default: 5600, min: 2500, max: 8000, step: 100 }],
-			callback: async ({ options }) => self.send(C.colorTempDirect(+options.k)),
+			callback: async ({ options }) => {
+				await self.send(C.colorTempDirect(+options.k))
+				self.state.colorTemp = +options.k
+				self.setVariableValues({ color_temp: self.state.colorTemp })
+			},
+		},
+		color_temp_rotary_up: {
+			name: 'Rotary STEP: Color Temp Up (K per click)',
+			options: [{ type: 'number', id: 'step', label: 'Kelvin per click', default: 100, min: 100, max: 1000, step: 100 }],
+			callback: async ({ options }) => {
+				const cur = self.state.colorTemp || 5600
+				const next = Math.min(8000, cur + +options.step)
+				await self.send(C.colorTempDirect(next))
+				self.state.colorTemp = next
+				self.setVariableValues({ color_temp: next })
+			},
+		},
+		color_temp_rotary_down: {
+			name: 'Rotary STEP: Color Temp Down (K per click)',
+			options: [{ type: 'number', id: 'step', label: 'Kelvin per click', default: 100, min: 100, max: 1000, step: 100 }],
+			callback: async ({ options }) => {
+				const cur = self.state.colorTemp || 5600
+				const next = Math.max(2500, cur - +options.step)
+				await self.send(C.colorTempDirect(next))
+				self.state.colorTemp = next
+				self.setVariableValues({ color_temp: next })
+			},
 		},
 
 		/* ───────── Raw VISCA ───────── */

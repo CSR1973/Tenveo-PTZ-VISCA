@@ -8,7 +8,8 @@ export function getConfigFields() {
 			width: 12,
 			label: 'Tenveo PTZ',
 			value:
-				'Controls Tenveo PTZ cameras (TEVO-VHD20HAN and similar) via VISCA-over-IP. Default UDP port is 52381.',
+				'Controls Tenveo PTZ cameras over VISCA (TCP/UDP) for PTZ + image, and ONVIF for presets ' +
+				'(needed on Tenveo NDI models that silently drop VISCA preset commands).',
 		},
 		{
 			type: 'textinput',
@@ -26,9 +27,20 @@ export function getConfigFields() {
 			regex: Regex.IP,
 		},
 		{
+			type: 'dropdown',
+			id: 'transport',
+			label: 'VISCA Protocol',
+			width: 6,
+			default: 'tcp',
+			choices: [
+				{ id: 'tcp', label: 'TCP (recommended)' },
+				{ id: 'udp', label: 'UDP — VISCA-over-IP' },
+			],
+		},
+		{
 			type: 'number',
 			id: 'port',
-			label: 'VISCA Port (UDP)',
+			label: 'VISCA Port (Tenveo uses 52381 for both)',
 			width: 3,
 			default: 52381,
 			min: 1,
@@ -37,11 +49,42 @@ export function getConfigFields() {
 		{
 			type: 'number',
 			id: 'cameraId',
-			label: 'Camera ID (1-7, for daisy-chain)',
+			label: 'Camera ID (1-7)',
 			width: 3,
 			default: 1,
 			min: 1,
 			max: 7,
+		},
+		{
+			type: 'static-text',
+			id: 'onvif_info',
+			width: 12,
+			label: 'ONVIF (presets)',
+			value:
+				'Tenveo NDI firmware exposes preset save/recall only via ONVIF. Default ONVIF credentials are admin / admin.',
+		},
+		{
+			type: 'number',
+			id: 'onvifPort',
+			label: 'ONVIF Port',
+			width: 3,
+			default: 2000,
+			min: 1,
+			max: 65535,
+		},
+		{
+			type: 'textinput',
+			id: 'onvifUser',
+			label: 'ONVIF Username',
+			width: 3,
+			default: 'admin',
+		},
+		{
+			type: 'textinput',
+			id: 'onvifPass',
+			label: 'ONVIF Password',
+			width: 3,
+			default: 'admin',
 		},
 		{
 			type: 'number',
@@ -69,6 +112,15 @@ export function getConfigFields() {
 			default: 4,
 			min: 0,
 			max: 7,
+		},
+		{
+			type: 'number',
+			id: 'unitsPerDegree',
+			label: 'VISCA units per degree (1° step calibration)',
+			width: 3,
+			default: 14,
+			min: 1,
+			max: 200,
 		},
 		{
 			type: 'number',

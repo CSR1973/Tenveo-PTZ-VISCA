@@ -47,9 +47,20 @@ export const ptReset = () => [0x81, 0x01, 0x06, 0x05, 0xff]
 
 /** Absolute pan/tilt position (24-bit signed each, but using 16-bit field). */
 export function ptAbsolute(pan, tilt, panSpeed = 12, tiltSpeed = 10) {
-	const [p1, p2, p3, p4] = nibble16(pan)
-	const [t1, t2, t3, t4] = nibble16(tilt)
+	const pp = pan < 0 ? (0x10000 + pan) & 0xffff : pan & 0xffff
+	const tt = tilt < 0 ? (0x10000 + tilt) & 0xffff : tilt & 0xffff
+	const [p1, p2, p3, p4] = nibble16(pp)
+	const [t1, t2, t3, t4] = nibble16(tt)
 	return [0x81, 0x01, 0x06, 0x02, panSpeed, tiltSpeed, p1, p2, p3, p4, t1, t2, t3, t4, 0xff]
+}
+
+/** Relative pan/tilt move. Pan/Tilt can be negative; two's complement for VISCA. */
+export function ptRelative(pan, tilt, panSpeed = 12, tiltSpeed = 10) {
+	const pp = pan < 0 ? (0x10000 + pan) & 0xffff : pan & 0xffff
+	const tt = tilt < 0 ? (0x10000 + tilt) & 0xffff : tilt & 0xffff
+	const [p1, p2, p3, p4] = nibble16(pp)
+	const [t1, t2, t3, t4] = nibble16(tt)
+	return [0x81, 0x01, 0x06, 0x03, panSpeed, tiltSpeed, p1, p2, p3, p4, t1, t2, t3, t4, 0xff]
 }
 
 /* Zoom */

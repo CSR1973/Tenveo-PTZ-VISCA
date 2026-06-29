@@ -6,6 +6,7 @@ import { getFeedbacks } from './feedbacks.js'
 import { getVariables } from './variables.js'
 import { getPresets } from './presets.js'
 import { ViscaIP } from './visca.js'
+import { OnvifClient } from './onvif.js'
 import * as C from './commands.js'
 
 const AE_NAME = {
@@ -32,6 +33,7 @@ class TenveoInstance extends InstanceBase {
 		this.config = config
 		this.state = {
 			connected: false,
+			onvifReady: false,
 			power: 'unknown',
 			af: 'unknown',
 			aeMode: null,
@@ -44,6 +46,9 @@ class TenveoInstance extends InstanceBase {
 			focusPos: null,
 			panPos: null,
 			tiltPos: null,
+			panDeg: 0,
+			tiltDeg: 0,
+			colorTemp: 5600,
 		}
 		this._pulseTimers = {}
 
@@ -54,6 +59,7 @@ class TenveoInstance extends InstanceBase {
 
 		this._publishStaticVars()
 		await this._connect()
+		await this._initOnvif()
 	}
 
 	async destroy() {
@@ -64,6 +70,7 @@ class TenveoInstance extends InstanceBase {
 			this.visca.close()
 			this.visca = null
 		}
+		this.onvif = null
 	}
 
 	async configUpdated(config) {
@@ -72,6 +79,7 @@ class TenveoInstance extends InstanceBase {
 		this._stopPolling()
 		if (this.visca) this.visca.close()
 		await this._connect()
+		await this._initOnvif()
 	}
 
 	getConfigFields() {
@@ -84,6 +92,9 @@ class TenveoInstance extends InstanceBase {
 		this.setVariableValues({
 			camera_name: this.config.name || 'Tenveo',
 			host: this.config.host || '',
+			pan_degrees: '0.0',
+			tilt_degrees: '0.0',
+			color_temp: this.state?.colorTemp ?? 5600,
 		})
 	}
 
@@ -94,9 +105,11 @@ class TenveoInstance extends InstanceBase {
 		}
 		this.updateStatus(InstanceStatus.Connecting)
 
+		const transport = this.config.transport || 'tcp'
 		this.visca = new ViscaIP({
 			host: this.config.host,
 			port: this.config.port || 52381,
+			transport,
 			cameraId: this.config.cameraId || 1,
 			logger: {
 				debug: (...a) => this.log('debug', a.join(' ')),
@@ -122,25 +135,58 @@ class TenveoInstance extends InstanceBase {
 		this.visca.open()
 	}
 
+	async _initOnvif() {
+		if (!this.config.host) return
+		this.onvif = new OnvifClient({
+			host: this.config.host,
+			port: this.config.onvifPort || 2000,
+			username: this.config.onvifUser || 'admin',
+			password: this.config.onvifPass || 'admin',
+			logger: {
+				debug: (...a) => this.log('debug', a.join(' ')),
+				info: (...a) => this.log('info', a.join(' ')),
+				warn: (...a) => this.log('warn', a.join(' ')),
+				error: (...a) => this.log('error', a.join(' ')),
+			},
+			verbose: !!this.config.verbose,
+		})
+		try {
+			const token = await this.onvif.getProfileToken()
+			this.state.onvifReady = true
+			this.setVariableValues({ onvif_ready: 'true' })
+			this.log('info', `ONVIF ready (profile token: ${token})`)
+		} catch (e) {
+			this.state.onvifReady = false
+			this.setVariableValues({ onvif_ready: 'false' })
+			this.log('warn', `ONVIF init failed: ${e.message} — presets will not work until this succeeds`)
+		}
+	}
+
 	send(bytes) {
 		if (!this.visca) return Promise.resolve()
 		return this.visca.command(bytes).catch((e) => this.log('error', `VISCA send failed: ${e.message}`))
 	}
 
-	/* ─── Polling ─── */
+	/* ─── Polling (chained, never overlaps) ─── */
 
 	_startPolling() {
 		this._stopPolling()
 		const interval = parseInt(this.config.pollInterval, 10) || 0
-		if (interval < 250) return // disabled or too aggressive
-		this._poll = setInterval(() => this._pollOnce(), interval)
-		// also do one immediate fetch
-		this._pollOnce()
+		if (interval < 250) return
+		this._pollStopped = false
+		const loop = async () => {
+			if (this._pollStopped) return
+			await this._pollOnce()
+			if (this._pollStopped) return
+			this._poll = setTimeout(loop, interval)
+		}
+		loop()
 	}
 
 	_stopPolling() {
+		this._pollStopped = true
 		if (this._poll) {
-			clearInterval(this._poll)
+			clearTimeout(this._poll)
 			this._poll = null
 		}
 	}
@@ -155,7 +201,6 @@ class TenveoInstance extends InstanceBase {
 				{ q: C.inqWbMode(), set: (r) => this._setWbMode(r) },
 				{ q: C.inqZoomPos(), set: (r) => this._setZoomPos(r) },
 				{ q: C.inqFocusPos(), set: (r) => this._setFocusPos(r) },
-				{ q: C.inqPtPos(), set: (r) => this._setPtPos(r) },
 				{ q: C.inqGain(), set: (r) => this._setGain(r) },
 				{ q: C.inqIris(), set: (r) => this._setIris(r) },
 				{ q: C.inqShutter(), set: (r) => this._setShutter(r) },
@@ -212,15 +257,6 @@ class TenveoInstance extends InstanceBase {
 		const v = C.denibble16(data)
 		this.state.focusPos = v
 		this.setVariableValues({ focus_position: v })
-	}
-	_setPtPos(buf) {
-		const data = C.parseInqReply(buf)
-		if (!data || data.length < 8) return
-		const pan = C.denibble16(data.slice(0, 4))
-		const tilt = C.denibble16(data.slice(4, 8))
-		this.state.panPos = pan
-		this.state.tiltPos = tilt
-		this.setVariableValues({ pan_position: pan, tilt_position: tilt })
 	}
 	_setGain(buf) {
 		const data = C.parseInqReply(buf)

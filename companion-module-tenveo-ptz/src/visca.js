@@ -1,22 +1,12 @@
 /**
- * VISCA over IP protocol layer for Tenveo PTZ cameras.
+ * VISCA transport — supports both VISCA-over-IP (UDP 52381) and
+ * raw VISCA-over-TCP on the same port (used by PTZOptics and many Tenveo models).
  *
- * Wraps VISCA payloads with the 8-byte Sony "VISCA over IP" header
- * and sends them via UDP (default port 52381).
- *
- *   Header (8 bytes, big-endian):
- *     [0..1] Payload type
- *              0x01 0x00 = VISCA command
- *              0x01 0x10 = VISCA inquiry
- *              0x02 0x00 = VISCA reply
- *              0x02 0x01 = VISCA device setting command (e.g. reset seq#)
- *     [2..3] Payload length (bytes after header)
- *     [4..7] Sequence number
- *
- *   Payload always begins with 0x8X (X = camera ID 1..7) and ends with 0xFF.
+ * UDP path wraps each command in the 8-byte Sony VISCA-over-IP header.
+ * TCP path sends raw VISCA bytes (no header) and parses replies on 0xFF.
  */
-
 import dgram from 'node:dgram'
+import net from 'node:net'
 import { EventEmitter } from 'node:events'
 
 export const PAYLOAD_TYPE = {
@@ -27,65 +17,87 @@ export const PAYLOAD_TYPE = {
 }
 
 export class ViscaIP extends EventEmitter {
-	constructor({ host, port = 52381, cameraId = 1, logger = console, verbose = false }) {
+	constructor({ host, port, transport = 'tcp', cameraId = 1, logger = console, verbose = false }) {
 		super()
 		this.host = host
-		this.port = port
+		this.transport = transport === 'udp' ? 'udp' : 'tcp'
+		this.port = port || 52381
 		this.cameraId = Math.min(Math.max(cameraId, 1), 7)
 		this.logger = logger
 		this.verbose = verbose
 		this.seq = 1
 		this.socket = null
 		this.connected = false
-		this.pending = new Map() // seq -> { resolve, reject, timer }
-		this.connectionWatchdog = null
+		this.pending = new Map()
+		this._rxBuf = Buffer.alloc(0)
 	}
 
 	get addr() {
-		return 0x80 | this.cameraId // 0x81 for ID=1
+		return 0x80 | this.cameraId
 	}
 
 	open() {
-		if (this.socket) return
-		this.socket = dgram.createSocket('udp4')
-		this.socket.on('error', (err) => {
-			this.logger.error(`VISCA UDP error: ${err.message}`)
-			this.connected = false
-			this.emit('disconnected', err)
-		})
-		this.socket.on('message', (msg) => this._onMessage(msg))
-		this.socket.bind(0, () => {
-			// Send a "reset sequence" control command to verify reachability.
-			this._sendControl(Buffer.from([0x01]))
-				.then(() => {
-					this.connected = true
-					this.emit('connected')
-				})
-				.catch(() => {
-					/* swallow — connection will be retried */
-				})
-		})
+		if (this.transport === 'tcp') this._openTcp()
+		else this._openUdp()
 	}
 
 	close() {
-		if (this.connectionWatchdog) {
-			clearInterval(this.connectionWatchdog)
-			this.connectionWatchdog = null
-		}
-		for (const [seq, p] of this.pending) {
+		for (const [, p] of this.pending) {
 			clearTimeout(p.timer)
-			p.reject(new Error('socket closed'))
-			this.pending.delete(seq)
+			try {
+				p.reject(new Error('socket closed'))
+			} catch (_) {
+				/* ignore */
+			}
 		}
+		this.pending.clear()
 		if (this.socket) {
 			try {
-				this.socket.close()
+				if (this.socket.destroy) this.socket.destroy()
+				else this.socket.close()
 			} catch (_) {
 				/* ignore */
 			}
 			this.socket = null
 		}
 		this.connected = false
+	}
+
+	_openUdp() {
+		this.socket = dgram.createSocket('udp4')
+		this.socket.on('error', (err) => {
+			this.logger.error(`VISCA UDP error: ${err.message}`)
+			this.connected = false
+			this.emit('disconnected', err)
+		})
+		this.socket.on('message', (msg) => this._onUdpMessage(msg))
+		this.socket.bind(0, () => {
+			this._sendRawUdp(PAYLOAD_TYPE.CONTROL, Buffer.from([0x01]))
+				.then(() => {
+					this.connected = true
+					this.emit('connected')
+				})
+				.catch(() => {})
+		})
+	}
+
+	_openTcp() {
+		this.socket = net.createConnection(this.port, this.host)
+		this.socket.setNoDelay(true)
+		this.socket.on('connect', () => {
+			this.connected = true
+			this.emit('connected')
+		})
+		this.socket.on('data', (msg) => this._onTcpData(msg))
+		this.socket.on('error', (err) => {
+			this.logger.error(`VISCA TCP error: ${err.message}`)
+			this.connected = false
+			this.emit('disconnected', err)
+		})
+		this.socket.on('close', () => {
+			this.connected = false
+			this.emit('disconnected')
+		})
 	}
 
 	_nextSeq() {
@@ -99,31 +111,42 @@ export class ViscaIP extends EventEmitter {
 		return [...buf].map((b) => b.toString(16).padStart(2, '0').toUpperCase()).join(' ')
 	}
 
-	_buildPacket(payloadType, payload) {
-		const seq = this._nextSeq()
-		const header = Buffer.alloc(8)
-		header.writeUInt16BE(payloadType, 0)
-		header.writeUInt16BE(payload.length, 2)
-		header.writeUInt32BE(seq, 4)
-		return { packet: Buffer.concat([header, payload]), seq }
+	command(payload) {
+		const buf = Array.isArray(payload) ? Buffer.from(payload) : payload
+		if (buf[0] === undefined) return Promise.reject(new Error('empty payload'))
+		if ((buf[0] & 0xf0) === 0x80) buf[0] = this.addr
+		return this._sendRaw(PAYLOAD_TYPE.COMMAND, buf)
+	}
+
+	inquiry(payload) {
+		const buf = Array.isArray(payload) ? Buffer.from(payload) : payload
+		if ((buf[0] & 0xf0) === 0x80) buf[0] = this.addr
+		return this._sendRaw(PAYLOAD_TYPE.INQUIRY, buf)
 	}
 
 	_sendRaw(payloadType, payload) {
+		if (this.transport === 'tcp') return this._sendRawTcp(payload)
+		return this._sendRawUdp(payloadType, payload)
+	}
+
+	_sendRawUdp(payloadType, payload) {
 		return new Promise((resolve, reject) => {
 			if (!this.socket) return reject(new Error('socket not open'))
-			const { packet, seq } = this._buildPacket(payloadType, payload)
+			const seq = this._nextSeq()
+			const header = Buffer.alloc(8)
+			header.writeUInt16BE(payloadType, 0)
+			header.writeUInt16BE(payload.length, 2)
+			header.writeUInt32BE(seq, 4)
+			const packet = Buffer.concat([header, payload])
 
 			const timer = setTimeout(() => {
 				this.pending.delete(seq)
-				resolve({ timeout: true, seq }) // VISCA replies are best-effort; do not reject
-			}, 800)
-
+				resolve({ timeout: true, seq })
+			}, 250)
 			this.pending.set(seq, { resolve, reject, timer })
 
 			if (this.verbose) {
-				this.logger.debug(
-					`TX seq=${seq} type=0x${payloadType.toString(16)} payload=${this._hex(payload)}`,
-				)
+				this.logger.debug(`UDP TX seq=${seq} type=0x${payloadType.toString(16)} ${this._hex(payload)}`)
 			}
 			this.socket.send(packet, this.port, this.host, (err) => {
 				if (err) {
@@ -135,38 +158,34 @@ export class ViscaIP extends EventEmitter {
 		})
 	}
 
-	_sendControl(payload) {
-		return this._sendRaw(PAYLOAD_TYPE.CONTROL, payload)
+	_sendRawTcp(payload) {
+		return new Promise((resolve, reject) => {
+			if (!this.socket) return reject(new Error('socket not open'))
+			const seq = this._nextSeq()
+			const timer = setTimeout(() => {
+				this.pending.delete(seq)
+				resolve({ timeout: true, seq })
+			}, 400)
+			this.pending.set(seq, { resolve, reject, timer })
+			if (this.verbose) this.logger.debug(`TCP TX seq=${seq} ${this._hex(payload)}`)
+			try {
+				this.socket.write(payload)
+			} catch (e) {
+				clearTimeout(timer)
+				this.pending.delete(seq)
+				reject(e)
+			}
+		})
 	}
 
-	/** Send a VISCA command (payload should be the full 8X..FF sequence). */
-	command(payload) {
-		const buf = Array.isArray(payload) ? Buffer.from(payload) : payload
-		if (buf[0] === undefined) return Promise.reject(new Error('empty payload'))
-		// Override camera address byte if caller used 0x81 default
-		if ((buf[0] & 0xf0) === 0x80) buf[0] = this.addr
-		return this._sendRaw(PAYLOAD_TYPE.COMMAND, buf)
-	}
-
-	/** Send a VISCA inquiry and resolve with parsed reply (or null on timeout). */
-	inquiry(payload) {
-		const buf = Array.isArray(payload) ? Buffer.from(payload) : payload
-		if ((buf[0] & 0xf0) === 0x80) buf[0] = this.addr
-		return this._sendRaw(PAYLOAD_TYPE.INQUIRY, buf)
-	}
-
-	_onMessage(msg) {
+	_onUdpMessage(msg) {
 		if (msg.length < 8) return
 		const payloadType = msg.readUInt16BE(0)
 		const seq = msg.readUInt32BE(4)
 		const payload = msg.slice(8)
-
 		if (this.verbose) {
-			this.logger.debug(
-				`RX seq=${seq} type=0x${payloadType.toString(16)} payload=${this._hex(payload)}`,
-			)
+			this.logger.debug(`UDP RX seq=${seq} type=0x${payloadType.toString(16)} ${this._hex(payload)}`)
 		}
-
 		const p = this.pending.get(seq)
 		if (p) {
 			clearTimeout(p.timer)
@@ -174,5 +193,27 @@ export class ViscaIP extends EventEmitter {
 			p.resolve({ payloadType, payload, seq })
 		}
 		this.emit('reply', { payloadType, payload, seq })
+	}
+
+	_onTcpData(chunk) {
+		this._rxBuf = Buffer.concat([this._rxBuf, chunk])
+		let idx
+		while ((idx = this._rxBuf.indexOf(0xff)) >= 0) {
+			const msg = this._rxBuf.slice(0, idx + 1)
+			this._rxBuf = this._rxBuf.slice(idx + 1)
+			if (this.verbose) this.logger.debug(`TCP RX ${this._hex(msg)}`)
+			// Resolve the oldest pending command only on Completion (0x5*),
+			// ignore intermediate ACK (0x4*).
+			if (msg.length >= 2 && (msg[1] & 0xf0) === 0x50) {
+				const nextKey = this.pending.keys().next().value
+				if (nextKey !== undefined) {
+					const p = this.pending.get(nextKey)
+					clearTimeout(p.timer)
+					this.pending.delete(nextKey)
+					p.resolve({ payload: msg, seq: nextKey })
+				}
+			}
+			this.emit('reply', { payload: msg })
+		}
 	}
 }
