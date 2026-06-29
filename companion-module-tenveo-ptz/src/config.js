@@ -1,0 +1,90 @@
+import { Regex } from '@companion-module/base'
+
+export function getConfigFields() {
+	return [
+		{
+			type: 'static-text',
+			id: 'info',
+			width: 12,
+			label: 'Tenveo PTZ',
+			value:
+				'Controls Tenveo PTZ cameras (TEVO-VHD20HAN and similar) via VISCA-over-IP. Default UDP port is 52381.',
+		},
+		{
+			type: 'textinput',
+			id: 'name',
+			label: 'Camera Name',
+			width: 6,
+			default: 'Tenveo Camera',
+		},
+		{
+			type: 'textinput',
+			id: 'host',
+			label: 'IP Address',
+			width: 6,
+			default: '192.168.88.11',
+			regex: Regex.IP,
+		},
+		{
+			type: 'number',
+			id: 'port',
+			label: 'VISCA Port (UDP)',
+			width: 3,
+			default: 52381,
+			min: 1,
+			max: 65535,
+		},
+		{
+			type: 'number',
+			id: 'cameraId',
+			label: 'Camera ID (1-7, for daisy-chain)',
+			width: 3,
+			default: 1,
+			min: 1,
+			max: 7,
+		},
+		{
+			type: 'number',
+			id: 'panSpeed',
+			label: 'Default Pan Speed (1-24)',
+			width: 3,
+			default: 12,
+			min: 1,
+			max: 24,
+		},
+		{
+			type: 'number',
+			id: 'tiltSpeed',
+			label: 'Default Tilt Speed (1-20)',
+			width: 3,
+			default: 10,
+			min: 1,
+			max: 20,
+		},
+		{
+			type: 'number',
+			id: 'zoomSpeed',
+			label: 'Default Zoom Speed (0-7)',
+			width: 3,
+			default: 4,
+			min: 0,
+			max: 7,
+		},
+		{
+			type: 'number',
+			id: 'pollInterval',
+			label: 'Polling Interval (ms, 0 disables)',
+			width: 3,
+			default: 0,
+			min: 0,
+			max: 60000,
+		},
+		{
+			type: 'checkbox',
+			id: 'verbose',
+			label: 'Verbose Logging',
+			width: 6,
+			default: false,
+		},
+	]
+}

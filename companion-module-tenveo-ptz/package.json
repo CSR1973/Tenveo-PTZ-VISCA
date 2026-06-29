@@ -1,0 +1,32 @@
+{
+	"name": "companion-module-tenveo-ptz",
+	"version": "1.0.0",
+	"main": "src/main.js",
+	"type": "module",
+	"description": "Bitfocus Companion module for Tenveo PTZ cameras (VISCA over IP)",
+	"scripts": {
+		"dev": "companion-module-build dev",
+		"build": "companion-module-build",
+		"lint": "eslint .",
+		"format": "prettier -w .",
+		"test:cli": "node test/cli.js",
+		"test:mock": "node test/mock-camera.js"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/your-org/companion-module-tenveo-ptz.git"
+	},
+	"author": "Tenveo Companion Module Contributors",
+	"license": "MIT",
+	"dependencies": {
+		"@companion-module/base": "~1.11.3"
+	},
+	"devDependencies": {
+		"@companion-module/tools": "^2.1.0",
+		"eslint": "^9.14.0",
+		"prettier": "^3.3.3"
+	},
+	"engines": {
+		"node": "^18.12 || ^20"
+	}
+}
