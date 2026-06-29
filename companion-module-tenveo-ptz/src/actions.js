@@ -135,8 +135,10 @@ export function getActions(self) {
 				{ type: 'dropdown', id: 'speed', label: 'Move speed', default: self.config.panSpeed || 12, choices: PAN_SPEEDS },
 			],
 			callback: async ({ options }) => {
-				await self.send(C.ptRelative(-Math.round(+options.deg * upd(self)), 0, +options.speed, self.config.tiltSpeed))
-				self.state.panDeg = (self.state.panDeg || 0) - (+options.deg)
+				self.state.panDeg = (self.state.panDeg || 0) - +options.deg
+				const panU = Math.round(self.state.panDeg * upd(self))
+				const tiltU = Math.round((self.state.tiltDeg || 0) * upd(self))
+				await self.send(C.ptAbsolute(panU, tiltU, +options.speed, self.config.tiltSpeed))
 				self.setVariableValues({ pan_degrees: self.state.panDeg.toFixed(1) })
 			},
 		},
@@ -147,8 +149,10 @@ export function getActions(self) {
 				{ type: 'dropdown', id: 'speed', label: 'Move speed', default: self.config.panSpeed || 12, choices: PAN_SPEEDS },
 			],
 			callback: async ({ options }) => {
-				await self.send(C.ptRelative(Math.round(+options.deg * upd(self)), 0, +options.speed, self.config.tiltSpeed))
-				self.state.panDeg = (self.state.panDeg || 0) + (+options.deg)
+				self.state.panDeg = (self.state.panDeg || 0) + +options.deg
+				const panU = Math.round(self.state.panDeg * upd(self))
+				const tiltU = Math.round((self.state.tiltDeg || 0) * upd(self))
+				await self.send(C.ptAbsolute(panU, tiltU, +options.speed, self.config.tiltSpeed))
 				self.setVariableValues({ pan_degrees: self.state.panDeg.toFixed(1) })
 			},
 		},
@@ -159,8 +163,10 @@ export function getActions(self) {
 				{ type: 'dropdown', id: 'speed', label: 'Move speed', default: self.config.tiltSpeed || 10, choices: TILT_SPEEDS },
 			],
 			callback: async ({ options }) => {
-				await self.send(C.ptRelative(0, Math.round(+options.deg * upd(self)), self.config.panSpeed, +options.speed))
-				self.state.tiltDeg = (self.state.tiltDeg || 0) + (+options.deg)
+				self.state.tiltDeg = (self.state.tiltDeg || 0) + +options.deg
+				const panU = Math.round((self.state.panDeg || 0) * upd(self))
+				const tiltU = Math.round(self.state.tiltDeg * upd(self))
+				await self.send(C.ptAbsolute(panU, tiltU, self.config.panSpeed, +options.speed))
 				self.setVariableValues({ tilt_degrees: self.state.tiltDeg.toFixed(1) })
 			},
 		},
@@ -171,8 +177,10 @@ export function getActions(self) {
 				{ type: 'dropdown', id: 'speed', label: 'Move speed', default: self.config.tiltSpeed || 10, choices: TILT_SPEEDS },
 			],
 			callback: async ({ options }) => {
-				await self.send(C.ptRelative(0, -Math.round(+options.deg * upd(self)), self.config.panSpeed, +options.speed))
-				self.state.tiltDeg = (self.state.tiltDeg || 0) - (+options.deg)
+				self.state.tiltDeg = (self.state.tiltDeg || 0) - +options.deg
+				const panU = Math.round((self.state.panDeg || 0) * upd(self))
+				const tiltU = Math.round(self.state.tiltDeg * upd(self))
+				await self.send(C.ptAbsolute(panU, tiltU, self.config.panSpeed, +options.speed))
 				self.setVariableValues({ tilt_degrees: self.state.tiltDeg.toFixed(1) })
 			},
 		},
@@ -459,6 +467,10 @@ export function getActions(self) {
 			name: 'Rotary STEP: Color Temp Up (K per click)',
 			options: [{ type: 'number', id: 'step', label: 'Kelvin per click', default: 100, min: 100, max: 1000, step: 100 }],
 			callback: async ({ options }) => {
+				if (self.state.wbMode !== C.WB_MODE.COLOR_TEMP) {
+					await self.send(C.wbMode(C.WB_MODE.COLOR_TEMP))
+					self.state.wbMode = C.WB_MODE.COLOR_TEMP
+				}
 				const cur = self.state.colorTemp || 5600
 				const next = Math.min(8000, cur + +options.step)
 				await self.send(C.colorTempDirect(next))
@@ -470,6 +482,10 @@ export function getActions(self) {
 			name: 'Rotary STEP: Color Temp Down (K per click)',
 			options: [{ type: 'number', id: 'step', label: 'Kelvin per click', default: 100, min: 100, max: 1000, step: 100 }],
 			callback: async ({ options }) => {
+				if (self.state.wbMode !== C.WB_MODE.COLOR_TEMP) {
+					await self.send(C.wbMode(C.WB_MODE.COLOR_TEMP))
+					self.state.wbMode = C.WB_MODE.COLOR_TEMP
+				}
 				const cur = self.state.colorTemp || 5600
 				const next = Math.max(2500, cur - +options.step)
 				await self.send(C.colorTempDirect(next))
