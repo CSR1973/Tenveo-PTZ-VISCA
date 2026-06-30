@@ -19,5 +19,6 @@ export function getVariables() {
 		{ variableId: 'pan_degrees', name: 'Pan position in degrees (Home = 0°)' },
 		{ variableId: 'tilt_degrees', name: 'Tilt position in degrees (Home = 0°)' },
 		{ variableId: 'color_temp', name: 'Current color temperature (K)' },
+		{ variableId: 'warmth', name: 'Warmth offset (-64 cool ↔ +64 warm, 0 neutral)' },
 	]
 }

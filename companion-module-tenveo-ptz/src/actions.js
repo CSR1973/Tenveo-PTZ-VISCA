@@ -494,6 +494,53 @@ export function getActions(self) {
 			},
 		},
 
+		/* ───────── Warmth (R-Gain/B-Gain) — works on Tenveo NDI cameras
+		 * that don't support manual Color Temp mode ───────── */
+		warmth_rotary_up: {
+			name: 'Rotary STEP: Warmth Up (warmer per click)',
+			options: [{ type: 'number', id: 'step', label: 'Step size (1-16)', default: 4, min: 1, max: 16 }],
+			callback: async ({ options }) => {
+				if (self.state.wbMode !== C.WB_MODE.MANUAL) {
+					await self.send(C.wbMode(C.WB_MODE.MANUAL))
+					self.state.wbMode = C.WB_MODE.MANUAL
+				}
+				const w = Math.min(64, (self.state.warmth || 0) + +options.step)
+				self.state.warmth = w
+				await self.send(C.rGainDirect(128 + w))
+				await self.send(C.bGainDirect(128 - w))
+				self.setVariableValues({ warmth: w })
+			},
+		},
+		warmth_rotary_down: {
+			name: 'Rotary STEP: Warmth Down (cooler per click)',
+			options: [{ type: 'number', id: 'step', label: 'Step size (1-16)', default: 4, min: 1, max: 16 }],
+			callback: async ({ options }) => {
+				if (self.state.wbMode !== C.WB_MODE.MANUAL) {
+					await self.send(C.wbMode(C.WB_MODE.MANUAL))
+					self.state.wbMode = C.WB_MODE.MANUAL
+				}
+				const w = Math.max(-64, (self.state.warmth || 0) - +options.step)
+				self.state.warmth = w
+				await self.send(C.rGainDirect(128 + w))
+				await self.send(C.bGainDirect(128 - w))
+				self.setVariableValues({ warmth: w })
+			},
+		},
+		warmth_reset: {
+			name: 'Warmth: Reset to neutral',
+			options: [],
+			callback: async () => {
+				if (self.state.wbMode !== C.WB_MODE.MANUAL) {
+					await self.send(C.wbMode(C.WB_MODE.MANUAL))
+					self.state.wbMode = C.WB_MODE.MANUAL
+				}
+				self.state.warmth = 0
+				await self.send(C.rGainDirect(128))
+				await self.send(C.bGainDirect(128))
+				self.setVariableValues({ warmth: 0 })
+			},
+		},
+
 		/* ───────── Raw VISCA ───────── */
 		raw_visca: {
 			name: 'Custom: Send Raw VISCA hex',

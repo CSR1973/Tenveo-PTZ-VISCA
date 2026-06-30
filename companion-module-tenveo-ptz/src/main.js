@@ -95,6 +95,7 @@ class TenveoInstance extends InstanceBase {
 			pan_degrees: '0.0',
 			tilt_degrees: '0.0',
 			color_temp: this.state?.colorTemp ?? 5600,
+			warmth: 0,
 		})
 	}
 
