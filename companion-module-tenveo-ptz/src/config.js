@@ -116,11 +116,20 @@ export function getConfigFields() {
 		{
 			type: 'number',
 			id: 'unitsPerDegree',
-			label: 'VISCA units per degree (1° step calibration)',
+			label: 'VISCA units per degree (Standard STEP calibration)',
 			width: 3,
 			default: 14,
 			min: 1,
 			max: 200,
+		},
+		{
+			type: 'number',
+			id: 'msPerDegree',
+			label: 'ms per degree (NDI drive-pulse STEP calibration)',
+			width: 3,
+			default: 80,
+			min: 10,
+			max: 1000,
 		},
 		{
 			type: 'number',

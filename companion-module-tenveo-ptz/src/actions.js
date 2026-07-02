@@ -7,18 +7,41 @@ const PAN_SPEEDS = speedChoices(1, 24)
 const TILT_SPEEDS = speedChoices(1, 20)
 const ZOOM_SPEEDS = speedChoices(0, 7)
 
-/** Auto-stop pulse helper for hold-style rotary actions. */
-function pulse(self, key, cmd, stopCmd, holdMs) {
+/** Smarter auto-stop pulse. Only sends the drive command when direction changes;
+ *  each subsequent fire in the same direction just extends the auto-stop timer. */
+function pulse(self, key, dirLabel, cmdFn, stopCmdFn, holdMs) {
+	if (!self._pulseState) self._pulseState = {}
+	const st = self._pulseState[key] || {}
 	if (self._pulseTimers[key]) clearTimeout(self._pulseTimers[key])
-	self.send(cmd())
+	if (st.dir !== dirLabel) {
+		self.send(cmdFn())
+		st.dir = dirLabel
+		st.lastSent = Date.now()
+		self._pulseState[key] = st
+	}
 	self._pulseTimers[key] = setTimeout(() => {
-		self.send(stopCmd())
+		self.send(stopCmdFn())
 		delete self._pulseTimers[key]
+		st.dir = null
+		self._pulseState[key] = st
 	}, holdMs)
 }
 
 /** Read calibrated units-per-degree from config (default 14). */
 const upd = (self) => Math.max(1, +self.config.unitsPerDegree || 14)
+/** Read ms-per-degree for NDI variant drive-pulse (default 80). */
+const mpd = (self) => Math.max(10, +self.config.msPerDegree || 80)
+/** Is this connection configured as an NDI-quirks camera? */
+const isNdi = (self) => (self.config.variant || 'standard') === 'ndi'
+
+/** Drive-pulse step for cameras that don't accept ptAbsolute properly.
+ *  Sends ptDrive at `speed` for `deg * ms_per_degree` ms, then stops. */
+async function driveStep(self, dir, deg, speed) {
+	const ms = Math.max(30, Math.round(Math.abs(deg) * mpd(self)))
+	await self.send(C.ptDrive(dir, speed, speed))
+	await new Promise((r) => setTimeout(r, ms))
+	await self.send(C.ptDrive(C.PT_DIR.STOP))
+}
 
 export function getActions(self) {
 	return {
@@ -58,10 +81,16 @@ export function getActions(self) {
 		pt_stop: { name: 'Pan/Tilt: Stop', options: [], callback: async () => self.send(C.ptDrive(C.PT_DIR.STOP)) },
 
 		pt_home: {
-			name: 'Pan/Tilt: Home (true center 0,0)',
+			name: 'Pan/Tilt: Home (true center + wide zoom)',
 			options: [],
 			callback: async () => {
-				await self.send(C.ptAbsolute(0, 0, self.config.panSpeed || 12, self.config.tiltSpeed || 10))
+				if (isNdi(self)) {
+					// VHD20HAN: raw VISCA Home works, ptAbsolute goes to extremes
+					await self.send(C.ptHome())
+				} else {
+					await self.send(C.ptAbsolute(0, 0, self.config.panSpeed || 12, self.config.tiltSpeed || 10))
+				}
+				await self.send(C.zoomDirect(0))
 				self.state.panDeg = 0
 				self.state.tiltDeg = 0
 				self.setVariableValues({ pan_degrees: '0.0', tilt_degrees: '0.0' })
@@ -97,7 +126,7 @@ export function getActions(self) {
 				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 180, min: 80, max: 2000 },
 			],
 			callback: async ({ options }) =>
-				pulse(self, 'pan', () => C.ptDrive(C.PT_DIR.LEFT, +options.speed, self.config.tiltSpeed), () => C.ptDrive(C.PT_DIR.STOP), +options.holdMs),
+				pulse(self, 'pt', 'L', () => C.ptDrive(C.PT_DIR.LEFT, +options.speed, self.config.tiltSpeed), () => C.ptDrive(C.PT_DIR.STOP), +options.holdMs),
 		},
 		pan_rotary_right: {
 			name: 'Rotary HOLD: Pan Right (Stream Deck +)',
@@ -106,7 +135,7 @@ export function getActions(self) {
 				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 180, min: 80, max: 2000 },
 			],
 			callback: async ({ options }) =>
-				pulse(self, 'pan', () => C.ptDrive(C.PT_DIR.RIGHT, +options.speed, self.config.tiltSpeed), () => C.ptDrive(C.PT_DIR.STOP), +options.holdMs),
+				pulse(self, 'pt', 'R', () => C.ptDrive(C.PT_DIR.RIGHT, +options.speed, self.config.tiltSpeed), () => C.ptDrive(C.PT_DIR.STOP), +options.holdMs),
 		},
 		tilt_rotary_up: {
 			name: 'Rotary HOLD: Tilt Up (Stream Deck +)',
@@ -115,7 +144,7 @@ export function getActions(self) {
 				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 180, min: 80, max: 2000 },
 			],
 			callback: async ({ options }) =>
-				pulse(self, 'tilt', () => C.ptDrive(C.PT_DIR.UP, self.config.panSpeed, +options.speed), () => C.ptDrive(C.PT_DIR.STOP), +options.holdMs),
+				pulse(self, 'pt', 'U', () => C.ptDrive(C.PT_DIR.UP, self.config.panSpeed, +options.speed), () => C.ptDrive(C.PT_DIR.STOP), +options.holdMs),
 		},
 		tilt_rotary_down: {
 			name: 'Rotary HOLD: Tilt Down (Stream Deck +)',
@@ -124,10 +153,10 @@ export function getActions(self) {
 				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 180, min: 80, max: 2000 },
 			],
 			callback: async ({ options }) =>
-				pulse(self, 'tilt', () => C.ptDrive(C.PT_DIR.DOWN, self.config.panSpeed, +options.speed), () => C.ptDrive(C.PT_DIR.STOP), +options.holdMs),
+				pulse(self, 'pt', 'D', () => C.ptDrive(C.PT_DIR.DOWN, self.config.panSpeed, +options.speed), () => C.ptDrive(C.PT_DIR.STOP), +options.holdMs),
 		},
 
-		/* ───────── Pan / Tilt rotary STEP (precise 1°/click — recommended for Stream Deck +) ───────── */
+		/* ───────── Pan / Tilt rotary STEP (variant-aware) ───────── */
 		pan_step_left: {
 			name: 'Rotary STEP: Pan Left (° per click)',
 			options: [
@@ -136,9 +165,13 @@ export function getActions(self) {
 			],
 			callback: async ({ options }) => {
 				self.state.panDeg = (self.state.panDeg || 0) - +options.deg
-				const panU = Math.round(self.state.panDeg * upd(self))
-				const tiltU = Math.round((self.state.tiltDeg || 0) * upd(self))
-				await self.send(C.ptAbsolute(panU, tiltU, +options.speed, self.config.tiltSpeed))
+				if (isNdi(self)) {
+					await driveStep(self, C.PT_DIR.LEFT, +options.deg, +options.speed)
+				} else {
+					const panU = Math.round(self.state.panDeg * upd(self))
+					const tiltU = Math.round((self.state.tiltDeg || 0) * upd(self))
+					await self.send(C.ptAbsolute(panU, tiltU, +options.speed, self.config.tiltSpeed))
+				}
 				self.setVariableValues({ pan_degrees: self.state.panDeg.toFixed(1) })
 			},
 		},
@@ -150,9 +183,13 @@ export function getActions(self) {
 			],
 			callback: async ({ options }) => {
 				self.state.panDeg = (self.state.panDeg || 0) + +options.deg
-				const panU = Math.round(self.state.panDeg * upd(self))
-				const tiltU = Math.round((self.state.tiltDeg || 0) * upd(self))
-				await self.send(C.ptAbsolute(panU, tiltU, +options.speed, self.config.tiltSpeed))
+				if (isNdi(self)) {
+					await driveStep(self, C.PT_DIR.RIGHT, +options.deg, +options.speed)
+				} else {
+					const panU = Math.round(self.state.panDeg * upd(self))
+					const tiltU = Math.round((self.state.tiltDeg || 0) * upd(self))
+					await self.send(C.ptAbsolute(panU, tiltU, +options.speed, self.config.tiltSpeed))
+				}
 				self.setVariableValues({ pan_degrees: self.state.panDeg.toFixed(1) })
 			},
 		},
@@ -164,9 +201,13 @@ export function getActions(self) {
 			],
 			callback: async ({ options }) => {
 				self.state.tiltDeg = (self.state.tiltDeg || 0) + +options.deg
-				const panU = Math.round((self.state.panDeg || 0) * upd(self))
-				const tiltU = Math.round(self.state.tiltDeg * upd(self))
-				await self.send(C.ptAbsolute(panU, tiltU, self.config.panSpeed, +options.speed))
+				if (isNdi(self)) {
+					await driveStep(self, C.PT_DIR.UP, +options.deg, +options.speed)
+				} else {
+					const panU = Math.round((self.state.panDeg || 0) * upd(self))
+					const tiltU = Math.round(self.state.tiltDeg * upd(self))
+					await self.send(C.ptAbsolute(panU, tiltU, self.config.panSpeed, +options.speed))
+				}
 				self.setVariableValues({ tilt_degrees: self.state.tiltDeg.toFixed(1) })
 			},
 		},
@@ -178,9 +219,13 @@ export function getActions(self) {
 			],
 			callback: async ({ options }) => {
 				self.state.tiltDeg = (self.state.tiltDeg || 0) - +options.deg
-				const panU = Math.round((self.state.panDeg || 0) * upd(self))
-				const tiltU = Math.round(self.state.tiltDeg * upd(self))
-				await self.send(C.ptAbsolute(panU, tiltU, self.config.panSpeed, +options.speed))
+				if (isNdi(self)) {
+					await driveStep(self, C.PT_DIR.DOWN, +options.deg, +options.speed)
+				} else {
+					const panU = Math.round((self.state.panDeg || 0) * upd(self))
+					const tiltU = Math.round(self.state.tiltDeg * upd(self))
+					await self.send(C.ptAbsolute(panU, tiltU, self.config.panSpeed, +options.speed))
+				}
 				self.setVariableValues({ tilt_degrees: self.state.tiltDeg.toFixed(1) })
 			},
 		},
@@ -206,17 +251,17 @@ export function getActions(self) {
 			name: 'Rotary HOLD: Zoom In',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Speed', default: self.config.zoomSpeed || 4, choices: ZOOM_SPEEDS },
-				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 160, min: 80, max: 2000 },
+				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 100, min: 50, max: 2000 },
 			],
-			callback: async ({ options }) => pulse(self, 'zoom', () => C.zoomTeleVar(+options.speed), C.zoomStop, +options.holdMs),
+			callback: async ({ options }) => pulse(self, 'zoom', 'IN', () => C.zoomTeleVar(+options.speed), C.zoomStop, +options.holdMs),
 		},
 		zoom_rotary_out: {
 			name: 'Rotary HOLD: Zoom Out',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Speed', default: self.config.zoomSpeed || 4, choices: ZOOM_SPEEDS },
-				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 160, min: 80, max: 2000 },
+				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 100, min: 50, max: 2000 },
 			],
-			callback: async ({ options }) => pulse(self, 'zoom', () => C.zoomWideVar(+options.speed), C.zoomStop, +options.holdMs),
+			callback: async ({ options }) => pulse(self, 'zoom', 'OUT', () => C.zoomWideVar(+options.speed), C.zoomStop, +options.holdMs),
 		},
 
 		/* ───────── Focus ───────── */
@@ -246,77 +291,84 @@ export function getActions(self) {
 			name: 'Rotary HOLD: Focus Near',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Speed', default: 4, choices: ZOOM_SPEEDS },
-				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 160, min: 80, max: 2000 },
+				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 120, min: 50, max: 2000 },
 			],
-			callback: async ({ options }) => pulse(self, 'focus', () => C.focusNearVar(+options.speed), C.focusStop, +options.holdMs),
+			callback: async ({ options }) => pulse(self, 'focus', 'N', () => C.focusNearVar(+options.speed), C.focusStop, +options.holdMs),
 		},
 		focus_rotary_far: {
 			name: 'Rotary HOLD: Focus Far',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Speed', default: 4, choices: ZOOM_SPEEDS },
-				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 160, min: 80, max: 2000 },
+				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 120, min: 50, max: 2000 },
 			],
-			callback: async ({ options }) => pulse(self, 'focus', () => C.focusFarVar(+options.speed), C.focusStop, +options.holdMs),
+			callback: async ({ options }) => pulse(self, 'focus', 'F', () => C.focusFarVar(+options.speed), C.focusStop, +options.holdMs),
 		},
 
-		/* ───────── Presets (ONVIF on Tenveo NDI — VISCA presets silently fail) ───────── */
+		/* ───────── Presets (variant-aware) ───────── */
 		preset_recall: {
-			name: 'Preset: Recall (via ONVIF)',
+			name: 'Preset: Recall',
 			options: [{ type: 'number', id: 'n', label: 'Preset (1-255)', default: 1, min: 1, max: 255 }],
 			callback: async ({ options }) => {
-				if (!self.onvif) return self.log('warn', 'ONVIF not initialised')
-				try {
-					await self.onvif.gotoPreset(String(+options.n))
-					self.state.lastPreset = +options.n
-					self.setVariableValues({ last_preset: self.state.lastPreset })
-					self.checkFeedbacks('preset_recalled')
-				} catch (e) {
-					self.log('error', `ONVIF GotoPreset ${options.n}: ${e.message}`)
+				const n = +options.n
+				if (isNdi(self)) {
+					await self.send(C.presetRecall(n))
+				} else if (self.onvif) {
+					try { await self.onvif.gotoPreset(String(n)) } catch (e) { self.log('error', `ONVIF GotoPreset ${n}: ${e.message}`) }
+				} else {
+					await self.send(C.presetRecall(n))
 				}
+				self.state.lastPreset = n
+				self.setVariableValues({ last_preset: n })
+				self.checkFeedbacks('preset_recalled')
 			},
 		},
 		preset_recall_var: {
-			name: 'Preset: Recall (from variable, via ONVIF)',
+			name: 'Preset: Recall (from variable)',
 			options: [{ type: 'textinput', id: 'expr', label: 'Preset (expression)', default: '1', useVariables: true }],
 			callback: async ({ options }, ctx) => {
 				const raw = await ctx.parseVariablesInString(options.expr)
 				const n = parseInt(raw, 10)
 				if (Number.isNaN(n)) return self.log('warn', `Invalid preset expression: ${raw}`)
-				if (!self.onvif) return self.log('warn', 'ONVIF not initialised')
-				try {
-					await self.onvif.gotoPreset(String(n))
-					self.state.lastPreset = n
-					self.setVariableValues({ last_preset: n })
-					self.checkFeedbacks('preset_recalled')
-				} catch (e) {
-					self.log('error', `ONVIF GotoPreset ${n}: ${e.message}`)
+				if (isNdi(self)) {
+					await self.send(C.presetRecall(n))
+				} else if (self.onvif) {
+					try { await self.onvif.gotoPreset(String(n)) } catch (e) { self.log('error', `ONVIF GotoPreset ${n}: ${e.message}`) }
+				} else {
+					await self.send(C.presetRecall(n))
 				}
+				self.state.lastPreset = n
+				self.setVariableValues({ last_preset: n })
+				self.checkFeedbacks('preset_recalled')
 			},
 		},
 		preset_save: {
-			name: 'Preset: Save (via ONVIF)',
+			name: 'Preset: Save',
 			options: [
 				{ type: 'number', id: 'n', label: 'Preset (1-255)', default: 1, min: 1, max: 255 },
-				{ type: 'textinput', id: 'name', label: 'Preset name (optional)', default: '' },
+				{ type: 'textinput', id: 'name', label: 'Preset name (ONVIF only)', default: '' },
 			],
 			callback: async ({ options }) => {
-				if (!self.onvif) return self.log('warn', 'ONVIF not initialised')
-				try {
-					await self.onvif.setPreset(String(+options.n), options.name || `Preset ${options.n}`)
-				} catch (e) {
-					self.log('error', `ONVIF SetPreset ${options.n}: ${e.message}`)
+				const n = +options.n
+				if (isNdi(self)) {
+					await self.send(C.presetSet(n))
+				} else if (self.onvif) {
+					try { await self.onvif.setPreset(String(n), options.name || `Preset ${n}`) } catch (e) { self.log('error', `ONVIF SetPreset ${n}: ${e.message}`) }
+				} else {
+					await self.send(C.presetSet(n))
 				}
 			},
 		},
 		preset_clear: {
-			name: 'Preset: Clear (via ONVIF)',
+			name: 'Preset: Clear',
 			options: [{ type: 'number', id: 'n', label: 'Preset (1-255)', default: 1, min: 1, max: 255 }],
 			callback: async ({ options }) => {
-				if (!self.onvif) return self.log('warn', 'ONVIF not initialised')
-				try {
-					await self.onvif.removePreset(String(+options.n))
-				} catch (e) {
-					self.log('error', `ONVIF RemovePreset ${options.n}: ${e.message}`)
+				const n = +options.n
+				if (isNdi(self)) {
+					await self.send(C.presetReset(n))
+				} else if (self.onvif) {
+					try { await self.onvif.removePreset(String(n)) } catch (e) { self.log('error', `ONVIF RemovePreset ${n}: ${e.message}`) }
+				} else {
+					await self.send(C.presetReset(n))
 				}
 			},
 		},
@@ -383,21 +435,21 @@ export function getActions(self) {
 		shutter_rotary_up:   { name: 'Rotary STEP: Shutter Up',   options: [], callback: async () => self.send(C.shutterUp()) },
 		shutter_rotary_down: { name: 'Rotary STEP: Shutter Down', options: [], callback: async () => self.send(C.shutterDown()) },
 
-		gain_up: { name: 'Gain: Up', options: [], callback: async () => self.send(C.gainUp()) },
-		gain_down: { name: 'Gain: Down', options: [], callback: async () => self.send(C.gainDown()) },
-		gain_reset: { name: 'Gain: Reset', options: [], callback: async () => self.send(C.gainReset()) },
+		gain_up: { name: 'Gain: Up (routes to ExpComp on NDI variant)', options: [], callback: async () => self.send(isNdi(self) ? C.expCompUp() : C.gainUp()) },
+		gain_down: { name: 'Gain: Down (routes to ExpComp on NDI variant)', options: [], callback: async () => self.send(isNdi(self) ? C.expCompDown() : C.gainDown()) },
+		gain_reset: { name: 'Gain: Reset (routes to ExpComp on NDI variant)', options: [], callback: async () => self.send(isNdi(self) ? C.expCompReset() : C.gainReset()) },
 		gain_direct: {
-			name: 'Gain: Direct Value (0-14)',
+			name: 'Gain: Direct Value (0-14) — Standard variant only',
 			options: [{ type: 'number', id: 'v', label: 'Value', default: 4, min: 0, max: 14 }],
 			callback: async ({ options }) => self.send(C.gainDirect(+options.v)),
 		},
 		gain_limit: {
-			name: 'Gain: Set Gain Limit',
+			name: 'Gain: Set Gain Limit — Standard variant only',
 			options: [{ type: 'number', id: 'v', label: 'Limit (4-15)', default: 9, min: 4, max: 15 }],
 			callback: async ({ options }) => self.send(C.gainLimit(+options.v)),
 		},
-		gain_rotary_up:   { name: 'Rotary STEP: Gain Up',   options: [], callback: async () => self.send(C.gainUp()) },
-		gain_rotary_down: { name: 'Rotary STEP: Gain Down', options: [], callback: async () => self.send(C.gainDown()) },
+		gain_rotary_up:   { name: 'Rotary STEP: Gain Up (auto-routes to ExpComp on NDI)',   options: [], callback: async () => self.send(isNdi(self) ? C.expCompUp() : C.gainUp()) },
+		gain_rotary_down: { name: 'Rotary STEP: Gain Down (auto-routes to ExpComp on NDI)', options: [], callback: async () => self.send(isNdi(self) ? C.expCompDown() : C.gainDown()) },
 
 		bright_up: { name: 'Bright: Up', options: [], callback: async () => self.send(C.brightUp()) },
 		bright_down: { name: 'Bright: Down', options: [], callback: async () => self.send(C.brightDown()) },
@@ -411,6 +463,8 @@ export function getActions(self) {
 		expcomp_up: { name: 'ExpComp: Up', options: [], callback: async () => self.send(C.expCompUp()) },
 		expcomp_down: { name: 'ExpComp: Down', options: [], callback: async () => self.send(C.expCompDown()) },
 		expcomp_reset: { name: 'ExpComp: Reset', options: [], callback: async () => self.send(C.expCompReset()) },
+		expcomp_rotary_up:   { name: 'Rotary STEP: ExpComp Up',   options: [], callback: async () => self.send(C.expCompUp()) },
+		expcomp_rotary_down: { name: 'Rotary STEP: ExpComp Down', options: [], callback: async () => self.send(C.expCompDown()) },
 		blc_on: { name: 'BLC: On', options: [], callback: async () => self.send(C.blcOn()) },
 		blc_off: { name: 'BLC: Off', options: [], callback: async () => self.send(C.blcOff()) },
 
@@ -455,7 +509,7 @@ export function getActions(self) {
 			callback: async ({ options }) => self.send(C.bGainDirect(+options.v)),
 		},
 		color_temp_direct: {
-			name: 'WB: Color Temperature (K) — set absolute',
+			name: 'WB: Color Temperature (K) — Standard variant only',
 			options: [{ type: 'number', id: 'k', label: 'Kelvin (2500-8000)', default: 5600, min: 2500, max: 8000, step: 100 }],
 			callback: async ({ options }) => {
 				await self.send(C.colorTempDirect(+options.k))
@@ -464,7 +518,7 @@ export function getActions(self) {
 			},
 		},
 		color_temp_rotary_up: {
-			name: 'Rotary STEP: Color Temp Up (K per click)',
+			name: 'Rotary STEP: Color Temp Up (Standard variant only)',
 			options: [{ type: 'number', id: 'step', label: 'Kelvin per click', default: 100, min: 100, max: 1000, step: 100 }],
 			callback: async ({ options }) => {
 				if (self.state.wbMode !== C.WB_MODE.COLOR_TEMP) {
@@ -479,7 +533,7 @@ export function getActions(self) {
 			},
 		},
 		color_temp_rotary_down: {
-			name: 'Rotary STEP: Color Temp Down (K per click)',
+			name: 'Rotary STEP: Color Temp Down (Standard variant only)',
 			options: [{ type: 'number', id: 'step', label: 'Kelvin per click', default: 100, min: 100, max: 1000, step: 100 }],
 			callback: async ({ options }) => {
 				if (self.state.wbMode !== C.WB_MODE.COLOR_TEMP) {
@@ -494,8 +548,7 @@ export function getActions(self) {
 			},
 		},
 
-		/* ───────── Warmth (R-Gain/B-Gain) — works on Tenveo NDI cameras
-		 * that don't support manual Color Temp mode ───────── */
+		/* ───────── Warmth (R-Gain/B-Gain) — works on both variants ───────── */
 		warmth_rotary_up: {
 			name: 'Rotary STEP: Warmth Up (warmer per click)',
 			options: [{ type: 'number', id: 'step', label: 'Step size (1-16)', default: 4, min: 1, max: 16 }],
