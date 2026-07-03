@@ -1,0 +1,35 @@
+{
+  "summary": "v1.10.0 realtime-publish fix verified. All 6 test suites pass: realtime-publish (22/22), focus-tracking (40/40), backlight-focus-home (40/40), axis-home-and-zoom (32/32), step-calibration (26/26), plus prior tester-authored independent-verify + independent-axis-home (55 assertions). node --check passes on src/actions.js and src/main.js. Total: 201+/201+ passed. Per-click publication of zoom_position/focus_position is proven (5 clicks -> 5 pubs; 6 clicks -> 6 pubs). First click publishes immediately without waiting for auto-stop. Poll-guard in _setZoomPos/_setFocusPos correctly short-circuits while _zoomDriveDir/_focusDriveDir or _zoomStopTimer/_focusStopTimer are set, preventing the 0-clobber bug the user reported. Auto-stop still refines final position and sends 81 01 04 07 00 FF (zoomStop) / 81 01 04 08 00 FF (focusStop).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/companion-module-tenveo-ptz/test/realtime-publish.test.js",
+    "/app/companion-module-tenveo-ptz/test/focus-tracking.test.js",
+    "/app/companion-module-tenveo-ptz/test/backlight-focus-home.test.js",
+    "/app/companion-module-tenveo-ptz/test/axis-home-and-zoom.test.js",
+    "/app/companion-module-tenveo-ptz/test/step-calibration.test.js",
+    "/app/companion-module-tenveo-ptz/test/independent-verify.test.js",
+    "/app/companion-module-tenveo-ptz/test/independent-axis-home.test.js"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "src/actions.js is 1094 lines — approaching the 700-line advisory limit. Consider splitting zoom/focus/pan/tilt into per-axis modules for maintainability in a future refactor. Not a blocker for v1.10.0.",
+    "The baseline+elapsed*unitsPerSec estimation is monotonic within a single drive but relies on wall-clock Date.now() elapsed which is fine for Companion's UI-tick cadence. Confirmed monotonic non-decreasing across 5 zoom clicks and 6 focus clicks.",
+    "Direction-reversal path (lines 90-96 / 160-166) correctly flushes accumulated distance into state before switching direction — verified by TEST 3 (Reversing zoom mid-spin) in realtime-publish.test.js.",
+    "Poll-guard implementation in main.js _setZoomPos (line 262) and _setFocusPos (line 273) short-circuits on `this._zoomDriveDir || this._zoomStopTimer` — matches the review-request spec exactly. Independently exercised in TESTs 7 & 8 of realtime-publish.test.js and passes."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "N/A - skipped per request"},
+  "seed_data_creation": "None. All tests self-fabricate fake `self` per test.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "v1.10.0 fixes the user-reported 'zoom variable only updates from Zoom Out/In actions, not Rotary STEP' and 'focus variables always 0' bugs. The mechanism: (1) zoom_step_in/out and focus_step_near/far callbacks now publish setVariableValues on EVERY click using a real-time estimate = baseline + elapsed*unitsPerSec*direction. (2) main.js._setZoomPos/_setFocusPos poll-guards prevent the 8Hz inquiry-poll from resetting state.zoomPos/focusPos to 0 while a drive is in progress. Auto-stop timer (default 250ms) still fires final zoomStop/focusStop and refines the estimate. Tarball at /app/companion-module-tenveo-ptz/tenveo-ptz-1.10.0.tgz is ready to ship. If a future report is needed for v1.11+, run all 7 test files listed under test_report_links; total ~201 assertions.",
+  "rca of the issue": "ROOT CAUSE (v1.9.0): variables were only published inside the setTimeout auto-stop callback. In real Companion runtime, the auto-stop firing path apparently didn't propagate to the variable-store consistently for the user (possibly because rapid subsequent clicks kept clearing/resetting the timer, or because the timer's setVariableValues call was being interleaved with a stale poll-reply that immediately overwrote it back to 0 via _setZoomPos/_setFocusPos). FIX (v1.10.0): (a) publish on every click with an on-the-fly baseline+elapsed estimate — proves the variable is written many times per drive, not once; (b) poll-guard on _setZoomPos/_setFocusPos ignores inquiry replies while the module is authoritatively driving that axis, preventing the estimate from being clobbered back to 0 mid-spin. Both mechanisms verified independently in realtime-publish.test.js (22/22)."
+}

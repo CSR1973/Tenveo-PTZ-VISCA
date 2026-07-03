@@ -257,6 +257,9 @@ class TenveoInstance extends InstanceBase {
 		const data = C.parseInqReply(buf)
 		if (!data || data.length < 4) return
 		const v = C.denibble16(data)
+		// Don't clobber the tracker while a drive is in progress or its auto-stop is pending —
+		// the module-side estimate is authoritative during those windows.
+		if (this._zoomDriveDir || this._zoomStopTimer) return
 		this.state.zoomPos = v
 		this.setVariableValues({
 			zoom_position: v,
@@ -267,6 +270,7 @@ class TenveoInstance extends InstanceBase {
 		const data = C.parseInqReply(buf)
 		if (!data || data.length < 4) return
 		const v = C.denibble16(data)
+		if (this._focusDriveDir || this._focusStopTimer) return
 		this.state.focusPos = v
 		this.setVariableValues({
 			focus_position: v,

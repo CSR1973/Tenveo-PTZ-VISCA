@@ -78,50 +78,53 @@ function zoomUnitsPerSec(self, speed) {
 }
 
 /** Variable-speed zoom drive with auto-stop after `idleMs` of no further clicks.
- *  This is the v1.0.0 pattern: rotary spins keep the camera moving smoothly at `speed`
- *  and the auto-stop fires once the rotary goes idle. State.zoomPos is estimated from
- *  elapsed drive time × zoomUnitsPerSec so zoom_position / zoom_percent stay in sync. */
+ *  Publishes zoom_position/zoom_percent on EVERY click (real-time estimate from elapsed
+ *  drive time × zoomUnitsPerSec) so variables update visibly during rotary spins, not only
+ *  when the auto-stop timer fires. */
 function zoomDriveStep(self, dir, speed, idleMs) {
 	const cmd = dir === 'tele' ? C.zoomTeleVar(speed) : C.zoomWideVar(speed)
 	const now = Date.now()
+	const same = self._zoomDriveDir === dir && self._zoomDriveSpeed === speed
 
-	// If direction or speed changed, flush accumulated distance for the previous drive
-	// then start a new drive with the new command.
-	if (self._zoomDriveDir !== dir || self._zoomDriveSpeed !== speed) {
-		if (self._zoomDriveDir && self._zoomDriveStart) {
+	if (!same) {
+		if (self._zoomDriveDir && self._zoomDriveStart != null && self._zoomDriveBaseline != null) {
 			const elapsed = (now - self._zoomDriveStart) / 1000
 			const delta = elapsed * zoomUnitsPerSec(self, self._zoomDriveSpeed) *
 				(self._zoomDriveDir === 'tele' ? 1 : -1)
-			self.state.zoomPos = Math.max(0, Math.min(16384, (self.state.zoomPos || 0) + delta))
-			updateZoomVars(self)
+			self.state.zoomPos = Math.max(0, Math.min(16384, (self._zoomDriveBaseline + delta)))
 		}
 		self._zoomDriveDir = dir
 		self._zoomDriveSpeed = speed
 		self._zoomDriveStart = now
-		// Fire-and-forget the drive command — do NOT await inside the throttle path
+		self._zoomDriveBaseline = self.state.zoomPos || 0
 		self.send(cmd).catch((e) => self.log('error', `zoom drive send failed: ${e.message}`))
 	}
 
-	// (Re)schedule the auto-stop
+	// Publish real-time estimated position on every click
+	const elapsedNow = (now - self._zoomDriveStart) / 1000
+	const estimated = (self._zoomDriveBaseline || 0) + elapsedNow * zoomUnitsPerSec(self, speed) *
+		(dir === 'tele' ? 1 : -1)
+	self.state.zoomPos = Math.max(0, Math.min(16384, estimated))
+	updateZoomVars(self)
+
 	if (self._zoomStopTimer) clearTimeout(self._zoomStopTimer)
 	self._zoomStopTimer = setTimeout(async () => {
 		self._zoomStopTimer = null
-		const startTime = self._zoomDriveStart || Date.now()
+		const startTime = self._zoomDriveStart
+		const baseline = self._zoomDriveBaseline
 		const spd = self._zoomDriveSpeed || 0
 		const driveDir = self._zoomDriveDir
 		self._zoomDriveDir = null
 		self._zoomDriveSpeed = 0
 		self._zoomDriveStart = null
-		try {
-			await self.send(C.zoomStop())
-		} catch (e) {
-			self.log('error', `zoomStop send failed: ${e.message}`)
+		self._zoomDriveBaseline = null
+		try { await self.send(C.zoomStop()) } catch (e) { self.log('error', `zoomStop send failed: ${e.message}`) }
+		if (startTime != null && baseline != null) {
+			const elapsed = (Date.now() - startTime) / 1000
+			const est = baseline + elapsed * zoomUnitsPerSec(self, spd) * (driveDir === 'tele' ? 1 : -1)
+			self.state.zoomPos = Math.max(0, Math.min(16384, est))
+			updateZoomVars(self)
 		}
-		// Add elapsed motion to zoom tracker
-		const elapsed = (Date.now() - startTime) / 1000
-		const delta = elapsed * zoomUnitsPerSec(self, spd) * (driveDir === 'tele' ? 1 : -1)
-		self.state.zoomPos = Math.max(0, Math.min(16384, (self.state.zoomPos || 0) + delta))
-		updateZoomVars(self)
 	}, idleMs)
 }
 
@@ -143,37 +146,55 @@ function focusUnitsPerSec(self, speed) {
 }
 
 /** Variable-speed focus drive with auto-stop after `idleMs` of no further clicks.
- *  Same pattern as zoomDriveStep; keeps state.focusPos in sync via elapsed time × units/s. */
+ *  Publishes focus_position/focus_percent on EVERY click (real-time estimate from elapsed
+ *  drive time × focusUnitsPerSec) and again on auto-stop, so the variables update visibly
+ *  during rotary spins — not only when the camera answers inqFocusPos (which Tenveo NDI
+ *  firmware silently drops). */
 function focusDriveStep(self, dir, speed, idleMs) {
 	const cmd = dir === 'far' ? C.focusFarVar(speed) : C.focusNearVar(speed)
 	const now = Date.now()
-	if (self._focusDriveDir !== dir || self._focusDriveSpeed !== speed) {
-		if (self._focusDriveDir && self._focusDriveStart) {
+	const same = self._focusDriveDir === dir && self._focusDriveSpeed === speed
+
+	if (!same) {
+		// Flush any previous drive into the tracker before starting a new one
+		if (self._focusDriveDir && self._focusDriveStart != null && self._focusDriveBaseline != null) {
 			const elapsed = (now - self._focusDriveStart) / 1000
 			const delta = elapsed * focusUnitsPerSec(self, self._focusDriveSpeed) *
 				(self._focusDriveDir === 'far' ? 1 : -1)
-			self.state.focusPos = Math.max(0, Math.min(16384, (self.state.focusPos || 0) + delta))
-			updateFocusVars(self)
+			self.state.focusPos = Math.max(0, Math.min(16384, (self._focusDriveBaseline + delta)))
 		}
 		self._focusDriveDir = dir
 		self._focusDriveSpeed = speed
 		self._focusDriveStart = now
+		self._focusDriveBaseline = self.state.focusPos || 0
 		self.send(cmd).catch((e) => self.log('error', `focus drive send failed: ${e.message}`))
 	}
+
+	// Publish real-time estimated position on every click
+	const elapsedNow = (now - self._focusDriveStart) / 1000
+	const estimated = (self._focusDriveBaseline || 0) + elapsedNow * focusUnitsPerSec(self, speed) *
+		(dir === 'far' ? 1 : -1)
+	self.state.focusPos = Math.max(0, Math.min(16384, estimated))
+	updateFocusVars(self)
+
 	if (self._focusStopTimer) clearTimeout(self._focusStopTimer)
 	self._focusStopTimer = setTimeout(async () => {
 		self._focusStopTimer = null
-		const startTime = self._focusDriveStart || Date.now()
+		const startTime = self._focusDriveStart
+		const baseline = self._focusDriveBaseline
 		const spd = self._focusDriveSpeed || 0
 		const driveDir = self._focusDriveDir
 		self._focusDriveDir = null
 		self._focusDriveSpeed = 0
 		self._focusDriveStart = null
+		self._focusDriveBaseline = null
 		try { await self.send(C.focusStop()) } catch (e) { self.log('error', `focusStop send failed: ${e.message}`) }
-		const elapsed = (Date.now() - startTime) / 1000
-		const delta = elapsed * focusUnitsPerSec(self, spd) * (driveDir === 'far' ? 1 : -1)
-		self.state.focusPos = Math.max(0, Math.min(16384, (self.state.focusPos || 0) + delta))
-		updateFocusVars(self)
+		if (startTime != null && baseline != null) {
+			const elapsed = (Date.now() - startTime) / 1000
+			const est = baseline + elapsed * focusUnitsPerSec(self, spd) * (driveDir === 'far' ? 1 : -1)
+			self.state.focusPos = Math.max(0, Math.min(16384, est))
+			updateFocusVars(self)
+		}
 	}, idleMs)
 }
 
