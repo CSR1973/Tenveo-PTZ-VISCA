@@ -66,6 +66,18 @@
 - Mock camera + CLI tester for offline validation
 - Web companion: catalog browser, packet inspector, connection-wizard, CLI snippets
 
+## What's implemented (2026-02-XX — v1.7.0)
+- **Zoom stepping reverted to variable-speed drive + auto-stop** (the v1.0.0 pattern that felt smooth).
+  A rotary spin now emits a single `zoomTeleVar`/`zoomWideVar` at the chosen speed and a single
+  `zoomStop` after `idleMs` of no more clicks — eliminating the jitter caused by rapid `zoomDirect`
+  targets on Tenveo NDI firmware.
+- **`state.zoomPos` is estimated from elapsed drive time × `zoomUnitsPerSec`** (new configurable
+  field, default 3200 u/s @ speed 7) so `zoom_position` and `zoom_percent` variables track
+  continuous drives correctly. Direction reversal flushes distance before switching.
+- **Fixed empty `zoom_position` variable** — `state.zoomPos` now initialises to `0` (was `null`);
+  `_publishStaticVars` seeds both `zoom_position` and `zoom_percent` at 0.
+- Tests: 99 assertions across 4 suites (32 primary + 26 regression + 10 + 41 independent).
+
 ## What's implemented (2026-02-XX — v1.6.0)
 - **Three axis-independent Home actions**: `pan_home_only` (moves pan to 0° while preserving tilt & zoom),
   `tilt_home_only` (moves tilt to 0° while preserving pan & zoom), `zoom_home_only` (widest, preserves
