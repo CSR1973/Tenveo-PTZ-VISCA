@@ -35,7 +35,51 @@ const mpd = (self) => Math.max(10, +self.config.msPerDegree || 80)
 const isNdi = (self) => (self.config.variant || 'standard') === 'ndi'
 
 /** Drive-pulse step for cameras that don't accept ptAbsolute properly.
- *  Sends ptDrive at `speed` for `deg * ms_per_degree` ms, then stops. */
+ *  Coalesces rapid clicks so the counter stays in sync with actual physical
+ *  motion instead of racing ahead of the camera's mechanical speed. */
+async function driveStepPan(self, deg, speed) {
+	if (self._panPending === undefined) self._panPending = 0
+	// Cap pending at ±15° so runaway clicks don't queue seconds of motion
+	self._panPending = Math.max(-15, Math.min(15, self._panPending + deg))
+	if (self._panRunning) return
+	self._panRunning = true
+	while (Math.abs(self._panPending) > 0.05) {
+		// Drive up to 3° per iteration
+		const chunk = Math.max(-3, Math.min(3, self._panPending))
+		const absDeg = Math.abs(chunk)
+		const dir = chunk > 0 ? C.PT_DIR.RIGHT : C.PT_DIR.LEFT
+		const ms = Math.max(30, Math.round(absDeg * mpd(self)))
+		await self.send(C.ptDrive(dir, speed, speed))
+		await new Promise((r) => setTimeout(r, ms))
+		await self.send(C.ptDrive(C.PT_DIR.STOP))
+		self.state.panDeg = (self.state.panDeg || 0) + chunk
+		self._panPending -= chunk
+		self.setVariableValues({ pan_degrees: self.state.panDeg.toFixed(1) })
+	}
+	self._panRunning = false
+}
+
+async function driveStepTilt(self, deg, speed) {
+	if (self._tiltPending === undefined) self._tiltPending = 0
+	self._tiltPending = Math.max(-15, Math.min(15, self._tiltPending + deg))
+	if (self._tiltRunning) return
+	self._tiltRunning = true
+	while (Math.abs(self._tiltPending) > 0.05) {
+		const chunk = Math.max(-3, Math.min(3, self._tiltPending))
+		const absDeg = Math.abs(chunk)
+		const dir = chunk > 0 ? C.PT_DIR.UP : C.PT_DIR.DOWN
+		const ms = Math.max(30, Math.round(absDeg * mpd(self)))
+		await self.send(C.ptDrive(dir, speed, speed))
+		await new Promise((r) => setTimeout(r, ms))
+		await self.send(C.ptDrive(C.PT_DIR.STOP))
+		self.state.tiltDeg = (self.state.tiltDeg || 0) + chunk
+		self._tiltPending -= chunk
+		self.setVariableValues({ tilt_degrees: self.state.tiltDeg.toFixed(1) })
+	}
+	self._tiltRunning = false
+}
+
+/** Kept for backward compatibility with any code that still calls it. */
 async function driveStep(self, dir, deg, speed) {
 	const ms = Math.max(30, Math.round(Math.abs(deg) * mpd(self)))
 	await self.send(C.ptDrive(dir, speed, speed))
@@ -164,15 +208,15 @@ export function getActions(self) {
 				{ type: 'dropdown', id: 'speed', label: 'Move speed', default: self.config.panSpeed || 12, choices: PAN_SPEEDS },
 			],
 			callback: async ({ options }) => {
-				self.state.panDeg = (self.state.panDeg || 0) - +options.deg
 				if (isNdi(self)) {
-					await driveStep(self, C.PT_DIR.LEFT, +options.deg, +options.speed)
+					driveStepPan(self, -(+options.deg), +options.speed)
 				} else {
+					self.state.panDeg = (self.state.panDeg || 0) - +options.deg
 					const panU = Math.round(self.state.panDeg * upd(self))
 					const tiltU = Math.round((self.state.tiltDeg || 0) * upd(self))
 					await self.send(C.ptAbsolute(panU, tiltU, +options.speed, self.config.tiltSpeed))
+					self.setVariableValues({ pan_degrees: self.state.panDeg.toFixed(1) })
 				}
-				self.setVariableValues({ pan_degrees: self.state.panDeg.toFixed(1) })
 			},
 		},
 		pan_step_right: {
@@ -182,15 +226,15 @@ export function getActions(self) {
 				{ type: 'dropdown', id: 'speed', label: 'Move speed', default: self.config.panSpeed || 12, choices: PAN_SPEEDS },
 			],
 			callback: async ({ options }) => {
-				self.state.panDeg = (self.state.panDeg || 0) + +options.deg
 				if (isNdi(self)) {
-					await driveStep(self, C.PT_DIR.RIGHT, +options.deg, +options.speed)
+					driveStepPan(self, +options.deg, +options.speed)
 				} else {
+					self.state.panDeg = (self.state.panDeg || 0) + +options.deg
 					const panU = Math.round(self.state.panDeg * upd(self))
 					const tiltU = Math.round((self.state.tiltDeg || 0) * upd(self))
 					await self.send(C.ptAbsolute(panU, tiltU, +options.speed, self.config.tiltSpeed))
+					self.setVariableValues({ pan_degrees: self.state.panDeg.toFixed(1) })
 				}
-				self.setVariableValues({ pan_degrees: self.state.panDeg.toFixed(1) })
 			},
 		},
 		tilt_step_up: {
@@ -200,15 +244,15 @@ export function getActions(self) {
 				{ type: 'dropdown', id: 'speed', label: 'Move speed', default: self.config.tiltSpeed || 10, choices: TILT_SPEEDS },
 			],
 			callback: async ({ options }) => {
-				self.state.tiltDeg = (self.state.tiltDeg || 0) + +options.deg
 				if (isNdi(self)) {
-					await driveStep(self, C.PT_DIR.UP, +options.deg, +options.speed)
+					driveStepTilt(self, +options.deg, +options.speed)
 				} else {
+					self.state.tiltDeg = (self.state.tiltDeg || 0) + +options.deg
 					const panU = Math.round((self.state.panDeg || 0) * upd(self))
 					const tiltU = Math.round(self.state.tiltDeg * upd(self))
 					await self.send(C.ptAbsolute(panU, tiltU, self.config.panSpeed, +options.speed))
+					self.setVariableValues({ tilt_degrees: self.state.tiltDeg.toFixed(1) })
 				}
-				self.setVariableValues({ tilt_degrees: self.state.tiltDeg.toFixed(1) })
 			},
 		},
 		tilt_step_down: {
@@ -218,15 +262,15 @@ export function getActions(self) {
 				{ type: 'dropdown', id: 'speed', label: 'Move speed', default: self.config.tiltSpeed || 10, choices: TILT_SPEEDS },
 			],
 			callback: async ({ options }) => {
-				self.state.tiltDeg = (self.state.tiltDeg || 0) - +options.deg
 				if (isNdi(self)) {
-					await driveStep(self, C.PT_DIR.DOWN, +options.deg, +options.speed)
+					driveStepTilt(self, -(+options.deg), +options.speed)
 				} else {
+					self.state.tiltDeg = (self.state.tiltDeg || 0) - +options.deg
 					const panU = Math.round((self.state.panDeg || 0) * upd(self))
 					const tiltU = Math.round(self.state.tiltDeg * upd(self))
 					await self.send(C.ptAbsolute(panU, tiltU, self.config.panSpeed, +options.speed))
+					self.setVariableValues({ tilt_degrees: self.state.tiltDeg.toFixed(1) })
 				}
-				self.setVariableValues({ tilt_degrees: self.state.tiltDeg.toFixed(1) })
 			},
 		},
 
@@ -262,6 +306,36 @@ export function getActions(self) {
 				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 100, min: 50, max: 2000 },
 			],
 			callback: async ({ options }) => pulse(self, 'zoom', 'OUT', () => C.zoomWideVar(+options.speed), C.zoomStop, +options.holdMs),
+		},
+		zoom_step_in: {
+			name: 'Rotary STEP: Zoom In (per click, no HOLD — best for NDI)',
+			options: [
+				{ type: 'dropdown', id: 'speed', label: 'Speed', default: self.config.zoomSpeed || 4, choices: ZOOM_SPEEDS },
+				{ type: 'number', id: 'ms', label: 'Duration per click (ms)', default: 80, min: 20, max: 500 },
+			],
+			callback: async ({ options }) => {
+				if (self._zoomBusy) return
+				self._zoomBusy = true
+				await self.send(C.zoomTeleVar(+options.speed))
+				await new Promise((r) => setTimeout(r, +options.ms))
+				await self.send(C.zoomStop())
+				self._zoomBusy = false
+			},
+		},
+		zoom_step_out: {
+			name: 'Rotary STEP: Zoom Out (per click, no HOLD — best for NDI)',
+			options: [
+				{ type: 'dropdown', id: 'speed', label: 'Speed', default: self.config.zoomSpeed || 4, choices: ZOOM_SPEEDS },
+				{ type: 'number', id: 'ms', label: 'Duration per click (ms)', default: 80, min: 20, max: 500 },
+			],
+			callback: async ({ options }) => {
+				if (self._zoomBusy) return
+				self._zoomBusy = true
+				await self.send(C.zoomWideVar(+options.speed))
+				await new Promise((r) => setTimeout(r, +options.ms))
+				await self.send(C.zoomStop())
+				self._zoomBusy = false
+			},
 		},
 
 		/* ───────── Focus ───────── */

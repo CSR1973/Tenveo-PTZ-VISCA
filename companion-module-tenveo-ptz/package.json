@@ -1,6 +1,6 @@
 {
 	"name": "companion-module-tenveo-ptz",
-	"version": "1.3.1",
+	"version": "1.3.2",
 	"main": "src/main.js",
 	"type": "module",
 	"description": "Bitfocus Companion module for Tenveo PTZ cameras (VISCA over IP)",
