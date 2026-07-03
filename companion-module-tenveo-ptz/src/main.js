@@ -44,6 +44,7 @@ class TenveoInstance extends InstanceBase {
 			shutter: null,
 			zoomPos: 0,
 			focusPos: null,
+			blc: 'unknown',
 			panPos: null,
 			tiltPos: null,
 			panDeg: 0,
@@ -96,6 +97,9 @@ class TenveoInstance extends InstanceBase {
 			tilt_degrees: '0.0',
 			zoom_position: this.state?.zoomPos ?? 0,
 			zoom_percent: Math.round(((this.state?.zoomPos ?? 0) / 16384) * 100),
+			focus_position: this.state?.focusPos ?? 0,
+			focus_percent: Math.round(((this.state?.focusPos ?? 0) / 16384) * 100),
+			backlight: this.state?.blc ?? 'unknown',
 			color_temp: this.state?.colorTemp ?? 5600,
 			warmth: 0,
 		})
@@ -207,6 +211,8 @@ class TenveoInstance extends InstanceBase {
 				{ q: C.inqGain(), set: (r) => this._setGain(r) },
 				{ q: C.inqIris(), set: (r) => this._setIris(r) },
 				{ q: C.inqShutter(), set: (r) => this._setShutter(r) },
+				{ q: C.inqPtPos(), set: (r) => this._setPtPos(r) },
+				{ q: C.inqBLC(), set: (r) => this._setBLC(r) },
 			]
 			for (const { q, set } of queries) {
 				const r = await this.visca.inquiry(q)
@@ -262,7 +268,40 @@ class TenveoInstance extends InstanceBase {
 		if (!data || data.length < 4) return
 		const v = C.denibble16(data)
 		this.state.focusPos = v
-		this.setVariableValues({ focus_position: v })
+		this.setVariableValues({
+			focus_position: v,
+			focus_percent: Math.round((Math.max(0, Math.min(16384, v)) / 16384) * 100),
+		})
+	}
+	_setPtPos(buf) {
+		const data = C.parseInqReply(buf)
+		if (!data || data.length < 8) return
+		const rawPan = C.denibble16(data.slice(0, 4))
+		const rawTilt = C.denibble16(data.slice(4, 8))
+		// Convert unsigned nibbles → signed 16-bit
+		const panS = rawPan >= 0x8000 ? rawPan - 0x10000 : rawPan
+		const tiltS = rawTilt >= 0x8000 ? rawTilt - 0x10000 : rawTilt
+		// Convert raw units back to degrees using the connection's calibration
+		const panC = Number.isFinite(+this.config.panCenter) ? +this.config.panCenter : 19050
+		const tiltC = Number.isFinite(+this.config.tiltCenter) ? +this.config.tiltCenter : 8000
+		const panUPD = Number.isFinite(+this.config.panUnitsPerDeg) ? +this.config.panUnitsPerDeg : 108.74
+		const tiltUPD = Number.isFinite(+this.config.tiltUnitsPerDeg) ? +this.config.tiltUnitsPerDeg : 86.66
+		if (panUPD !== 0) this.state.panDeg = (panS - panC) / panUPD
+		if (tiltUPD !== 0) this.state.tiltDeg = (tiltS - tiltC) / tiltUPD
+		this.state.panU = panS
+		this.state.tiltU = tiltS
+		this.setVariableValues({
+			pan_degrees: (this.state.panDeg ?? 0).toFixed(1),
+			tilt_degrees: (this.state.tiltDeg ?? 0).toFixed(1),
+		})
+	}
+	_setBLC(buf) {
+		const data = C.parseInqReply(buf)
+		if (!data) return
+		const v = data[0] === 0x02 ? 'on' : data[0] === 0x03 ? 'off' : 'unknown'
+		this.state.blc = v
+		this.setVariableValues({ backlight: v })
+		this.checkFeedbacks('backlight_state')
 	}
 	_setGain(buf) {
 		const data = C.parseInqReply(buf)

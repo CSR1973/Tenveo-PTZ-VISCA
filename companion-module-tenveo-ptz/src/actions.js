@@ -125,6 +125,35 @@ function zoomDriveStep(self, dir, speed, idleMs) {
 	}, idleMs)
 }
 
+/** Best-effort refresh of state.panDeg / state.tiltDeg from the physical camera.
+ *  Uses inqPtPos when a visca socket is available. Silently returns if the camera
+ *  doesn't answer — tracker just stays at its previous estimate. */
+async function refreshPanTiltFromCamera(self) {
+	if (!self.visca || typeof self.visca.inquiry !== 'function') return
+	try {
+		const r = await self.visca.inquiry(C.inqPtPos())
+		if (!r || !r.payload) return
+		const data = C.parseInqReply(r.payload)
+		if (!data || data.length < 8) return
+		const rawPan = C.denibble16(data.slice(0, 4))
+		const rawTilt = C.denibble16(data.slice(4, 8))
+		const panS = rawPan >= 0x8000 ? rawPan - 0x10000 : rawPan
+		const tiltS = rawTilt >= 0x8000 ? rawTilt - 0x10000 : rawTilt
+		const panC = panCenter(self)
+		const tiltC = tiltCenter(self)
+		const puD = panUPD(self)
+		const tuD = tiltUPD(self)
+		if (puD !== 0) self.state.panDeg = (panS - panC) / puD
+		if (tuD !== 0) self.state.tiltDeg = (tiltS - tiltC) / tuD
+		self.setVariableValues({
+			pan_degrees: (self.state.panDeg ?? 0).toFixed(1),
+			tilt_degrees: (self.state.tiltDeg ?? 0).toFixed(1),
+		})
+	} catch {
+		// swallow — tracker stays as-is
+	}
+}
+
 /** Compute the (panU, tiltU) VISCA units for the current tracked degrees. */
 function absoluteUnits(self) {
 	const panU = toInt16(Math.round(panCenter(self) + (self.state.panDeg || 0) * panUPD(self)))
@@ -293,6 +322,8 @@ export function getActions(self) {
 				{ type: 'dropdown', id: 'panSpeed', label: 'Pan speed', default: self.config.panSpeed || 12, choices: PAN_SPEEDS },
 			],
 			callback: async ({ options }) => {
+				// Sync tracker from the physical camera so the "kept" axis (tilt) is byte-exact
+				await refreshPanTiltFromCamera(self)
 				self.state.panDeg = 0
 				self.setVariableValues({ pan_degrees: '0.0' })
 				const { panU, tiltU } = absoluteUnits(self)
@@ -305,6 +336,8 @@ export function getActions(self) {
 				{ type: 'dropdown', id: 'tiltSpeed', label: 'Tilt speed', default: self.config.tiltSpeed || 10, choices: TILT_SPEEDS },
 			],
 			callback: async ({ options }) => {
+				// Sync tracker from the physical camera so the "kept" axis (pan) is byte-exact
+				await refreshPanTiltFromCamera(self)
 				self.state.tiltDeg = 0
 				self.setVariableValues({ tilt_degrees: '0.0' })
 				const { panU, tiltU } = absoluteUnits(self)
@@ -515,7 +548,7 @@ export function getActions(self) {
 			name: 'Rotary STEP: Zoom In (Tele) — variable-speed drive + auto-stop',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Zoom speed', default: self.config.zoomSpeed || 4, choices: ZOOM_SPEEDS },
-				{ type: 'number', id: 'idleMs', label: 'Idle time before auto-stop (ms)', default: 120, min: 40, max: 500 },
+				{ type: 'number', id: 'idleMs', label: 'Idle time before auto-stop (ms)', default: 250, min: 40, max: 500 },
 			],
 			callback: async ({ options }) => {
 				zoomDriveStep(self, 'tele', +options.speed, +options.idleMs)
@@ -525,7 +558,7 @@ export function getActions(self) {
 			name: 'Rotary STEP: Zoom Out (Wide) — variable-speed drive + auto-stop',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Zoom speed', default: self.config.zoomSpeed || 4, choices: ZOOM_SPEEDS },
-				{ type: 'number', id: 'idleMs', label: 'Idle time before auto-stop (ms)', default: 120, min: 40, max: 500 },
+				{ type: 'number', id: 'idleMs', label: 'Idle time before auto-stop (ms)', default: 250, min: 40, max: 500 },
 			],
 			callback: async ({ options }) => {
 				zoomDriveStep(self, 'wide', +options.speed, +options.idleMs)
@@ -552,8 +585,16 @@ export function getActions(self) {
 		focus_lock_off: { name: 'Focus: Lock Off', options: [], callback: async () => self.send(C.focusLockOff()) },
 		focus_direct: {
 			name: 'Focus: Direct Position',
-			options: [{ type: 'number', id: 'pos', label: 'Position (0-65535)', default: 0, min: 0, max: 65535 }],
-			callback: async ({ options }) => self.send(C.focusDirect(+options.pos)),
+			options: [{ type: 'number', id: 'pos', label: 'Position (0-16384)', default: 0, min: 0, max: 16384 }],
+			callback: async ({ options }) => {
+				const pos = Math.max(0, Math.min(16384, +options.pos))
+				self.state.focusPos = pos
+				self.setVariableValues({
+					focus_position: pos,
+					focus_percent: Math.round((pos / 16384) * 100),
+				})
+				await self.send(C.focusDirect(pos))
+			},
 		},
 		focus_rotary_near: {
 			name: 'Rotary HOLD: Focus Near',
@@ -733,8 +774,37 @@ export function getActions(self) {
 		expcomp_reset: { name: 'ExpComp: Reset', options: [], callback: async () => self.send(C.expCompReset()) },
 		expcomp_rotary_up:   { name: 'Rotary STEP: ExpComp Up',   options: [], callback: async () => self.send(C.expCompUp()) },
 		expcomp_rotary_down: { name: 'Rotary STEP: ExpComp Down', options: [], callback: async () => self.send(C.expCompDown()) },
-		blc_on: { name: 'BLC: On', options: [], callback: async () => self.send(C.blcOn()) },
-		blc_off: { name: 'BLC: Off', options: [], callback: async () => self.send(C.blcOff()) },
+		blc_on: {
+			name: 'Backlight: On',
+			options: [],
+			callback: async () => {
+				self.state.blc = 'on'
+				self.setVariableValues({ backlight: 'on' })
+				await self.send(C.blcOn())
+				self.checkFeedbacks('backlight_state')
+			},
+		},
+		blc_off: {
+			name: 'Backlight: Off',
+			options: [],
+			callback: async () => {
+				self.state.blc = 'off'
+				self.setVariableValues({ backlight: 'off' })
+				await self.send(C.blcOff())
+				self.checkFeedbacks('backlight_state')
+			},
+		},
+		blc_toggle: {
+			name: 'Backlight: Toggle',
+			options: [],
+			callback: async () => {
+				const next = self.state.blc === 'on' ? 'off' : 'on'
+				self.state.blc = next
+				self.setVariableValues({ backlight: next })
+				await self.send(next === 'on' ? C.blcOn() : C.blcOff())
+				self.checkFeedbacks('backlight_state')
+			},
+		},
 
 		/* ───────── White Balance ───────── */
 		wb_mode: {

@@ -31,6 +31,14 @@ export function getFeedbacks(self) {
 			options: [{ type: 'dropdown', id: 'state', label: 'When AF is', default: 'on', choices: [{ id: 'on', label: 'On' }, { id: 'off', label: 'Off' }] }],
 			callback: ({ options }) => self.state.af === options.state,
 		},
+		backlight_state: {
+			type: 'boolean',
+			name: 'Backlight State',
+			description: 'Highlights when Backlight Compensation (BLC) is On or Off',
+			defaultStyle: { bgcolor: AMBER, color: BLACK },
+			options: [{ type: 'dropdown', id: 'state', label: 'When Backlight is', default: 'on', choices: [{ id: 'on', label: 'On' }, { id: 'off', label: 'Off' }] }],
+			callback: ({ options }) => self.state.blc === options.state,
+		},
 		exposure_mode: {
 			type: 'boolean',
 			name: 'Exposure Mode',

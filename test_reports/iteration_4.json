@@ -1,0 +1,36 @@
+{
+  "summary": "v1.8.0 backend testing for /app/companion-module-tenveo-ptz. Ran the new backlight-focus-home.test.js (40/40), the two prior regression suites axis-home-and-zoom (32/32) and step-calibration (26/26), plus the two independent verifier scripts from earlier iterations (independent-verify + independent-axis-home 41/41). Verified node --check parses cleanly for actions.js, main.js, commands.js, variables.js, feedbacks.js. All requested independent checks (stale-tracker refresh for pan_home_only/tilt_home_only, Backlight display names, blc_toggle byte pattern, focus_percent variable, inqBLC bytes, backlight_state feedback, zoom_step_in/out idleMs=250) are exercised by backlight-focus-home.test.js and all pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/companion-module-tenveo-ptz/test/backlight-focus-home.test.js",
+    "/app/companion-module-tenveo-ptz/test/axis-home-and-zoom.test.js",
+    "/app/companion-module-tenveo-ptz/test/step-calibration.test.js",
+    "/app/companion-module-tenveo-ptz/test/independent-verify.test.js",
+    "/app/companion-module-tenveo-ptz/test/independent-axis-home.test.js"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "refreshPanTiltFromCamera correctly reverses the calibration (raw int16 → degrees) using the same panCenter/panUnitsPerDeg/tiltCenter/tiltUnitsPerDeg constants — so pan_home_only / tilt_home_only now compute ptAbsolute from the CAMERA's current position, not the stale tracker. Verified panU=25574 when camera is at +60° with tracker=0, and tiltU=6700 when camera is at -15° with tracker=0.",
+    "Graceful fallback when self.visca is unavailable — tilt_home_only still fires and uses the tracker (verified in TEST 3). Good defensive coding.",
+    "blc_toggle emits exactly the spec bytes 81 01 04 33 02 FF (on) and 81 01 04 33 03 FF (off) on alternating calls, plus checkFeedbacks('backlight_state') both times.",
+    "focus_percent computed as round((pos/16383)*100) — pos=8192 → 50, matches zoom_percent style.",
+    "zoom_step_in / zoom_step_out both default idleMs=250 (bumped from 120). Rotary-spin jitter should be substantially reduced.",
+    "No hardcoded env, no MongoDB _id issues (this is a pure Companion module — no DB, no HTTP)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "n/a"},
+  "test_credentials": "n/a — module-level unit tests, no auth surface",
+  "seed_data_creation": "None. Tests build fake `self` objects and mock visca inline.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "v1.8.0 tagged. 150/150 assertions pass across 5 test files. If next iteration adds more actions, keep the pattern: build fake `self` with state{}, mock visca.inquiry to return {payload: Buffer([0x90,0x50,...,0xFF])}, decode outgoing packets from self.sendVISCA spy. inqPtPos payload layout after stripping 90 50 header and FF terminator is p1p2p3p4 t1t2t3t4 (each nibble in low 4 bits). Byte cheatsheet retained in review request.",
+  "rca of the issue": "Root cause of the original 'Home: Tilt only also homes pan' bug: state.panDeg tracker only updated when the module drives the axis (pt_step_* or hold releases), so if the camera was moved via presets, manual joystick, or another Companion instance, tracker went stale at 0. tilt_home_only was reading tracker=0 → panU=panCenter(19050) → sending ptAbsolute(19050,8000) which homed BOTH axes. Fix: refreshPanTiltFromCamera(self) issues inqPtPos, parses the signed 16-bit p1p2p3p4/t1t2t3t4 nibbles, reverses the calibration ((raw-center)/unitsPerDeg) into fresh degrees, then computes absoluteUnits with the untouched axis coming from live camera data. Verified end-to-end in backlight-focus-home.test.js TEST 1/2."
+}
