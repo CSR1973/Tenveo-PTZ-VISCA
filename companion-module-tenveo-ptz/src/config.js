@@ -28,6 +28,17 @@ export function getConfigFields() {
 		},
 		{
 			type: 'dropdown',
+			id: 'variant',
+			label: 'Camera Variant',
+			width: 12,
+			default: 'standard',
+			choices: [
+				{ id: 'standard', label: 'Standard (VHD20H-U / non-NDI)' },
+				{ id: 'ndi', label: 'NDI Quirks (VHD20HAN / NDI)' },
+			],
+		},
+		{
+			type: 'dropdown',
 			id: 'transport',
 			label: 'VISCA Protocol',
 			width: 6,
