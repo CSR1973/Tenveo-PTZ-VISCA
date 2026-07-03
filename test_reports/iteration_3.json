@@ -1,0 +1,40 @@
+{
+  "summary": "v1.7.0 zoom fix verified. Primary suite axis-home-and-zoom.test.js passes 32/32 (exit 0). step-calibration.test.js passes 26/26 (exit 0, regression clean). independent-verify.test.js still passes on the unchanged Pan/Tilt STEP calibration path. The prior iteration_2 independent-axis-home.test.js had 5 stale assertions tied to the v1.6.0 coalesced-zoomDirect model; I rewrote that file so its zoom assertions now exercise the new v1.7.0 drive+auto-stop pattern (rapid clicks → EXACTLY 1 zoomTeleVar packet + EXACTLY 1 zoomStop after idle, plus direction-reversal flushing and zoom_position variable emission). The rewritten file passes 41/41 (exit 0). `node --check` clean on src/actions.js, src/config.js, src/main.js, src/variables.js. state.zoomPos is confirmed to initialise to 0 in main.js line 45 and _publishStaticVars seeds zoom_position=0 and zoom_percent=0. Byte-level checks confirm smooth zoom: no jitter (single teleVar/wideVar drive per continuous spin), auto-stop fires ONCE after idleMs, and zoom_position + zoom_percent variables update from elapsed drive time × zoomUnitsPerSec.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/companion-module-tenveo-ptz/test/axis-home-and-zoom.test.js",
+    "/app/companion-module-tenveo-ptz/test/step-calibration.test.js",
+    "/app/companion-module-tenveo-ptz/test/independent-verify.test.js",
+    "/app/companion-module-tenveo-ptz/test/independent-axis-home.test.js"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "src/actions.js is now ~890 lines and still growing (new zoomDriveStep + updateZoomVars helpers). Splitting into pt-actions.js / zoom-actions.js / focus-actions.js / exposure-actions.js would improve maintainability. Non-blocking.",
+    "zoomDriveStep uses fire-and-forget self.send(...).catch(...) for the drive command (throttle path) but await self.send(zoomStop()) inside the auto-stop timer — that asymmetry is intentional and correct.",
+    "Direction/speed change inside zoomDriveStep flushes accumulated distance before starting a new drive; auto-stop also adds the final elapsed motion. Both branches correctly clamp state.zoomPos to [0..16384].",
+    "The legacy zoom_in / zoom_out / zoom_stop still exist for backwards compatibility and correctly seed _zoomDriveDir/_zoomDriveSpeed/_zoomDriveStart so zoom_stop can flush the tracker. No conflict with the new STEP path since they don't touch _zoomStopTimer.",
+    "main.js _publishStaticVars uses this.state?.zoomPos ?? 0 — safe against undefined and correctly emits 0 instead of the pre-fix empty string.",
+    "config.js zoomUnitsPerSec field default 3200, min 100, max 16384 — matches the review request."
+  ],
+  "updated_files": [
+    "/app/companion-module-tenveo-ptz/test/independent-axis-home.test.js (rewritten V5+V6 sections — replaced obsolete zoomDirect coalesce assertions with v1.7.0 drive+auto-stop, direction-reversal, and zoom_position variable emission checks; added V7 reversal + V8 state-init assertions; result 41/41)"
+  ],
+  "success_rate": {
+    "backend": "100% (32/32 primary + 26/26 regression + 41/41 independent-axis-home + independent-verify all-pass)",
+    "frontend": "n/a (Companion Node ESM module, no UI in-repo)"
+  },
+  "test_credentials": "n/a — no auth, no network. Fake `self` with in-memory state and array-capturing send().",
+  "seed_data_creation": "None. Each scenario builds a fresh fake self with the calibrated NDI defaults (panCenter=19050, tiltCenter=8000, panUnitsPerDeg=108.74, tiltUnitsPerDeg=86.66, zoomUnitsPerSec=3200).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run from /app/companion-module-tenveo-ptz: `node test/axis-home-and-zoom.test.js && node test/step-calibration.test.js && node test/independent-verify.test.js && node test/independent-axis-home.test.js`. All four must exit 0 (32/32, 26/26, 10/10, 41/41 respectively). Zoom byte cheatsheet: teleVar=81 01 04 07 (0x20|speed) FF; wideVar=81 01 04 07 (0x30|speed) FF; zoomStop=81 01 04 07 00 FF; zoomDirect=81 01 04 47 a b c d FF. New v1.7.0 semantics: zoom_step_in/out uses variable-speed drive with auto-stop after idleMs; rapid clicks must emit EXACTLY 1 driveVar + 1 stop packet. state.zoomPos is estimated from elapsed drive time × zoomUnitsPerSec and updated on direction change, on stop, and on auto-stop.",
+  "rca_of_the_issue": "User's v1.6.0 jitter bug reproducible in the code review: v1.6.0 sent a zoomDirect(pos) command every 40ms of continuous rotation. Tenveo NDI firmware treats each zoomDirect as a fresh position target, causing decelerate→accelerate→decelerate cycles = visible jitter. v1.7.0 reverts to the v1.0.0 pattern: on the first click of a spin issue ONE zoomTeleVar/zoomWideVar drive packet at the chosen speed, and only issue a zoomStop after idleMs of no additional clicks. Distance travelled is estimated from elapsed time × zoomUnitsPerSec so the zoom_position and zoom_percent variables still track. Bug in variable emission: v1.6.0 initialised state.zoomPos=null so `${zoom_position}` interpolated as empty string; v1.7.0 initialises to 0 and _publishStaticVars seeds both variables at init. Byte-level tests confirm both fixes."
+}

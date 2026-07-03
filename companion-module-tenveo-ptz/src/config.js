@@ -135,6 +135,15 @@ export function getConfigFields() {
 		},
 		{
 			type: 'number',
+			id: 'zoomUnitsPerSec',
+			label: 'Zoom units/s @ speed 7 (for zoom_position tracking)',
+			width: 3,
+			default: 3200,
+			min: 100,
+			max: 16384,
+		},
+		{
+			type: 'number',
 			id: 'panDegPerSec',
 			label: 'Pan °/s @ speed 24 (HOLD tracking calibration)',
 			width: 3,

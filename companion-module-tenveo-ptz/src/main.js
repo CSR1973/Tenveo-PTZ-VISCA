@@ -42,7 +42,7 @@ class TenveoInstance extends InstanceBase {
 			gain: null,
 			iris: null,
 			shutter: null,
-			zoomPos: null,
+			zoomPos: 0,
 			focusPos: null,
 			panPos: null,
 			tiltPos: null,

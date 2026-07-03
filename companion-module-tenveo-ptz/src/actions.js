@@ -67,18 +67,62 @@ function updateZoomVars(self) {
 	})
 }
 
-/** Coalesce rapid Zoom direct-position updates so fast dial spins don't flood the socket. */
-function sendZoomDirectThrottled(self) {
-	if (self._zoomSendTimer) return
-	self._zoomSendTimer = setTimeout(async () => {
-		self._zoomSendTimer = null
-		const pos = Math.max(0, Math.min(16384, Math.round(self.state.zoomPos || 0)))
-		try {
-			await self.send(C.zoomDirect(pos))
-		} catch (e) {
-			self.log('error', `zoomDirect send failed: ${e.message}`)
+/** Zoom units-per-second at the given VISCA zoom speed (0..7).
+ *  Uses config.zoomUnitsPerSec (default 3200 = full range in ~5s at speed 7) scaled linearly.
+ *  Speed 0 is treated as ~1/8 of max so slow-speed clicks still move the tracker. */
+function zoomUnitsPerSec(self, speed) {
+	const max = Math.max(100, +self.config.zoomUnitsPerSec || 3200)
+	const s = Math.max(0, Math.min(7, +speed))
+	// s=0 → 12.5% of max, s=7 → 100% of max (linear interp)
+	return max * (0.125 + (0.875 * s) / 7)
+}
+
+/** Variable-speed zoom drive with auto-stop after `idleMs` of no further clicks.
+ *  This is the v1.0.0 pattern: rotary spins keep the camera moving smoothly at `speed`
+ *  and the auto-stop fires once the rotary goes idle. State.zoomPos is estimated from
+ *  elapsed drive time × zoomUnitsPerSec so zoom_position / zoom_percent stay in sync. */
+function zoomDriveStep(self, dir, speed, idleMs) {
+	const cmd = dir === 'tele' ? C.zoomTeleVar(speed) : C.zoomWideVar(speed)
+	const now = Date.now()
+
+	// If direction or speed changed, flush accumulated distance for the previous drive
+	// then start a new drive with the new command.
+	if (self._zoomDriveDir !== dir || self._zoomDriveSpeed !== speed) {
+		if (self._zoomDriveDir && self._zoomDriveStart) {
+			const elapsed = (now - self._zoomDriveStart) / 1000
+			const delta = elapsed * zoomUnitsPerSec(self, self._zoomDriveSpeed) *
+				(self._zoomDriveDir === 'tele' ? 1 : -1)
+			self.state.zoomPos = Math.max(0, Math.min(16384, (self.state.zoomPos || 0) + delta))
+			updateZoomVars(self)
 		}
-	}, 40)
+		self._zoomDriveDir = dir
+		self._zoomDriveSpeed = speed
+		self._zoomDriveStart = now
+		// Fire-and-forget the drive command — do NOT await inside the throttle path
+		self.send(cmd).catch((e) => self.log('error', `zoom drive send failed: ${e.message}`))
+	}
+
+	// (Re)schedule the auto-stop
+	if (self._zoomStopTimer) clearTimeout(self._zoomStopTimer)
+	self._zoomStopTimer = setTimeout(async () => {
+		self._zoomStopTimer = null
+		const startTime = self._zoomDriveStart || Date.now()
+		const spd = self._zoomDriveSpeed || 0
+		const driveDir = self._zoomDriveDir
+		self._zoomDriveDir = null
+		self._zoomDriveSpeed = 0
+		self._zoomDriveStart = null
+		try {
+			await self.send(C.zoomStop())
+		} catch (e) {
+			self.log('error', `zoomStop send failed: ${e.message}`)
+		}
+		// Add elapsed motion to zoom tracker
+		const elapsed = (Date.now() - startTime) / 1000
+		const delta = elapsed * zoomUnitsPerSec(self, spd) * (driveDir === 'tele' ? 1 : -1)
+		self.state.zoomPos = Math.max(0, Math.min(16384, (self.state.zoomPos || 0) + delta))
+		updateZoomVars(self)
+	}, idleMs)
 }
 
 /** Compute the (panU, tiltU) VISCA units for the current tracked degrees. */
@@ -404,14 +448,43 @@ export function getActions(self) {
 		zoom_in: {
 			name: 'Zoom: In (Tele)',
 			options: [{ type: 'dropdown', id: 'speed', label: 'Speed', default: self.config.zoomSpeed || 4, choices: ZOOM_SPEEDS }],
-			callback: async ({ options }) => self.send(C.zoomTeleVar(+options.speed)),
+			callback: async ({ options }) => {
+				self._zoomDriveDir = 'tele'
+				self._zoomDriveSpeed = +options.speed
+				self._zoomDriveStart = Date.now()
+				await self.send(C.zoomTeleVar(+options.speed))
+			},
 		},
 		zoom_out: {
 			name: 'Zoom: Out (Wide)',
 			options: [{ type: 'dropdown', id: 'speed', label: 'Speed', default: self.config.zoomSpeed || 4, choices: ZOOM_SPEEDS }],
-			callback: async ({ options }) => self.send(C.zoomWideVar(+options.speed)),
+			callback: async ({ options }) => {
+				self._zoomDriveDir = 'wide'
+				self._zoomDriveSpeed = +options.speed
+				self._zoomDriveStart = Date.now()
+				await self.send(C.zoomWideVar(+options.speed))
+			},
 		},
-		zoom_stop: { name: 'Zoom: Stop', options: [], callback: async () => self.send(C.zoomStop()) },
+		zoom_stop: {
+			name: 'Zoom: Stop',
+			options: [],
+			callback: async () => {
+				if (self._zoomStopTimer) { clearTimeout(self._zoomStopTimer); self._zoomStopTimer = null }
+				const startTime = self._zoomDriveStart
+				const spd = self._zoomDriveSpeed || 0
+				const dir = self._zoomDriveDir
+				self._zoomDriveDir = null
+				self._zoomDriveSpeed = 0
+				self._zoomDriveStart = null
+				await self.send(C.zoomStop())
+				if (dir && startTime) {
+					const elapsed = (Date.now() - startTime) / 1000
+					const delta = elapsed * zoomUnitsPerSec(self, spd) * (dir === 'tele' ? 1 : -1)
+					self.state.zoomPos = Math.max(0, Math.min(16384, (self.state.zoomPos || 0) + delta))
+					updateZoomVars(self)
+				}
+			},
+		},
 		zoom_direct: {
 			name: 'Zoom: Direct Position (0-16384)',
 			options: [{ type: 'number', id: 'pos', label: 'Position', default: 0, min: 0, max: 16384 }],
@@ -439,25 +512,23 @@ export function getActions(self) {
 			callback: async ({ options }) => pulse(self, 'zoom', 'OUT', () => C.zoomWideVar(+options.speed), C.zoomStop, +options.holdMs),
 		},
 		zoom_step_in: {
-			name: 'Rotary STEP: Zoom In (Tele) — smooth direct-position',
+			name: 'Rotary STEP: Zoom In (Tele) — variable-speed drive + auto-stop',
 			options: [
-				{ type: 'number', id: 'delta', label: 'Units per click (32-4096; 512 ≈ 32 clicks full range)', default: 512, min: 32, max: 4096 },
+				{ type: 'dropdown', id: 'speed', label: 'Zoom speed', default: self.config.zoomSpeed || 4, choices: ZOOM_SPEEDS },
+				{ type: 'number', id: 'idleMs', label: 'Idle time before auto-stop (ms)', default: 120, min: 40, max: 500 },
 			],
 			callback: async ({ options }) => {
-				self.state.zoomPos = Math.min(16384, Math.max(0, (self.state.zoomPos || 0)) + +options.delta)
-				updateZoomVars(self)
-				sendZoomDirectThrottled(self)
+				zoomDriveStep(self, 'tele', +options.speed, +options.idleMs)
 			},
 		},
 		zoom_step_out: {
-			name: 'Rotary STEP: Zoom Out (Wide) — smooth direct-position',
+			name: 'Rotary STEP: Zoom Out (Wide) — variable-speed drive + auto-stop',
 			options: [
-				{ type: 'number', id: 'delta', label: 'Units per click (32-4096; 512 ≈ 32 clicks full range)', default: 512, min: 32, max: 4096 },
+				{ type: 'dropdown', id: 'speed', label: 'Zoom speed', default: self.config.zoomSpeed || 4, choices: ZOOM_SPEEDS },
+				{ type: 'number', id: 'idleMs', label: 'Idle time before auto-stop (ms)', default: 120, min: 40, max: 500 },
 			],
 			callback: async ({ options }) => {
-				self.state.zoomPos = Math.max(0, Math.min(16384, (self.state.zoomPos || 0)) - +options.delta)
-				updateZoomVars(self)
-				sendZoomDirectThrottled(self)
+				zoomDriveStep(self, 'wide', +options.speed, +options.idleMs)
 			},
 		},
 
