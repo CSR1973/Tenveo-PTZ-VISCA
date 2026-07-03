@@ -66,6 +66,21 @@
 - Mock camera + CLI tester for offline validation
 - Web companion: catalog browser, packet inspector, connection-wizard, CLI snippets
 
+## What's implemented (2026-02-XX — v1.8.0)
+- **Fixed "Home: Tilt only also homes pan" bug** — new `refreshPanTiltFromCamera(self)` issues `inqPtPos`
+  before pan_home_only / tilt_home_only, reverses the calibration back to fresh degrees, and uses the
+  live pan/tilt so the untouched axis is byte-exact even when the tracker was stale (e.g., after a
+  preset recall or manual joystick move). Graceful fallback to tracker when the camera is unreachable.
+- **BLC actions renamed to "Backlight"** in display names. New `blc_toggle` action + `backlight_state`
+  boolean feedback. State is now tracked in `state.blc` and polled via new `inqBLC` (`81 09 04 33 FF`).
+- **New `focus_percent` variable** (0=near, 100=far) — populated on `focus_direct` and by the poll
+  loop's `_setFocusPos`. Companion syntax: `$(Tenveo_PTZ_11:focus_percent)`.
+- **Zoom STEP default `idleMs` bumped 120 → 250 ms** to reduce start/stop cycles during slow rotary
+  spins (this is the software mitigation the user requested).
+- Poll cycle now also reads pan/tilt position (via `inqPtPos`) so the tracker auto-syncs from the
+  physical camera every poll interval — pan_degrees / tilt_degrees stay accurate.
+- Tests: 150/150 across 5 suites.
+
 ## What's implemented (2026-02-XX — v1.7.0)
 - **Zoom stepping reverted to variable-speed drive + auto-stop** (the v1.0.0 pattern that felt smooth).
   A rotary spin now emits a single `zoomTeleVar`/`zoomWideVar` at the chosen speed and a single
