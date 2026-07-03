@@ -66,6 +66,19 @@
 - Mock camera + CLI tester for offline validation
 - Web companion: catalog browser, packet inspector, connection-wizard, CLI snippets
 
+## What's implemented (2026-02-XX — v1.6.0)
+- **Three axis-independent Home actions**: `pan_home_only` (moves pan to 0° while preserving tilt & zoom),
+  `tilt_home_only` (moves tilt to 0° while preserving pan & zoom), `zoom_home_only` (widest, preserves
+  pan/tilt). Pan/Tilt homing composes `ptAbsolute(centerU, currentAxisU, ...)` using the tracked
+  degrees so the untouched axis stays byte-exact on the wire.
+- **Zoom stepping rewritten** to use smooth direct-position stepping with 40 ms coalescing:
+  `state.zoomPos += delta` per click, one `zoomDirect(pos)` packet per coalesce window. Replaces the
+  old fire→wait→stop pulse pattern that felt "steppy" and dropped clicks under the busy-lock.
+- **New variable `zoom_percent`** (0 = widest, 100 = tele). Updated on step actions, direct-position
+  action, home actions, and via polling loop.
+- Tests: 30/30 new + 26/26 regression + 28/28 independent (testing agent). Package v1.6.0
+  at `/app/companion-module-tenveo-ptz/tenveo-ptz-1.6.0.tgz`.
+
 ## What's implemented (2026-02-XX — v1.5.0)
 - **Rotary STEP Pan/Tilt now uses user-calibrated absolute-position math.** Defaults match the
   physically measured VHD20HAN: pan center 19050 units, 108.74 units/°; tilt center 8000 units,
