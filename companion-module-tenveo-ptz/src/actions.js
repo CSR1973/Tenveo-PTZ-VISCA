@@ -29,100 +29,155 @@ function pulse(self, key, dirLabel, cmdFn, stopCmdFn, holdMs) {
 
 /** Read calibrated units-per-degree from config (default 14). */
 const upd = (self) => Math.max(1, +self.config.unitsPerDegree || 14)
-/** Read ms-per-degree for NDI variant drive-pulse (default 80). */
-const mpd = (self) => Math.max(10, +self.config.msPerDegree || 80)
+/** Pan/Tilt max degrees-per-second at top speed (for HOLD duration → degrees tracking). */
+const panDpsMax = (self) => Math.max(1, +self.config.panDegPerSec || 100)
+const tiltDpsMax = (self) => Math.max(1, +self.config.tiltDegPerSec || 60)
 /** Is this connection configured as an NDI-quirks camera? */
 const isNdi = (self) => (self.config.variant || 'standard') === 'ndi'
 
-/** Drive-pulse step for cameras that don't accept ptAbsolute properly.
- *  Coalesces rapid clicks so the counter stays in sync with actual physical
- *  motion instead of racing ahead of the camera's mechanical speed. */
-async function driveStepPan(self, deg, speed) {
-	if (self._panPending === undefined) self._panPending = 0
-	// Cap pending at ±15° so runaway clicks don't queue seconds of motion
-	self._panPending = Math.max(-15, Math.min(15, self._panPending + deg))
-	if (self._panRunning) return
-	self._panRunning = true
-	while (Math.abs(self._panPending) > 0.05) {
-		// Drive up to 3° per iteration
-		const chunk = Math.max(-3, Math.min(3, self._panPending))
-		const absDeg = Math.abs(chunk)
-		const dir = chunk > 0 ? C.PT_DIR.RIGHT : C.PT_DIR.LEFT
-		const ms = Math.max(30, Math.round(absDeg * mpd(self)))
-		await self.send(C.ptDrive(dir, speed, speed))
-		await new Promise((r) => setTimeout(r, ms))
-		await self.send(C.ptDrive(C.PT_DIR.STOP))
-		self.state.panDeg = (self.state.panDeg || 0) + chunk
-		self._panPending -= chunk
+/** Soft-limit ranges used for the internal degree tracker. Tenveo VHD20 covers roughly ±170° pan / ±30° tilt. */
+const PAN_LIMIT = 170
+const TILT_LIMIT = 30
+const clampPan = (d) => Math.max(-PAN_LIMIT, Math.min(PAN_LIMIT, d))
+const clampTilt = (d) => Math.max(-TILT_LIMIT, Math.min(TILT_LIMIT, d))
+
+/** Coalesce rapid Pan/Tilt absolute-position updates so fast dial spins don't flood the socket.
+ *  Every click updates state.panDeg/tiltDeg + the variable immediately, but only one ptAbsolute
+ *  command is transmitted per ~30 ms window — always carrying the latest target. */
+function sendPtAbsoluteThrottled(self, panSpeed, tiltSpeed) {
+	self._ptTargetPanSpeed = panSpeed
+	self._ptTargetTiltSpeed = tiltSpeed
+	if (self._ptSendTimer) return
+	self._ptSendTimer = setTimeout(async () => {
+		self._ptSendTimer = null
+		const panU = Math.round((self.state.panDeg || 0) * upd(self))
+		const tiltU = Math.round((self.state.tiltDeg || 0) * upd(self))
+		try {
+			await self.send(C.ptAbsolute(panU, tiltU, self._ptTargetPanSpeed, self._ptTargetTiltSpeed))
+		} catch (e) {
+			self.log('error', `ptAbsolute send failed: ${e.message}`)
+		}
+	}, 30)
+}
+
+/** Start tracking a HOLD-drive so pan_degrees/tilt_degrees update when the button is released.
+ *  panDir/tiltDir: -1 | 0 | +1. Speeds are the VISCA speed values actually sent. */
+function startDrive(self, panDir, tiltDir, panSpeed, tiltSpeed) {
+	// If a previous drive is still running (e.g. user pressed a new direction without stopping),
+	// close it out first so its motion is accounted for.
+	finishDrive(self)
+	self._drive = {
+		startTime: Date.now(),
+		panDir,
+		tiltDir,
+		panSpeed: +panSpeed || 0,
+		tiltSpeed: +tiltSpeed || 0,
+	}
+}
+
+/** Finalize a HOLD-drive: compute elapsed → degrees moved → update state + variables. */
+function finishDrive(self) {
+	const d = self._drive
+	if (!d) return
+	self._drive = null
+	const ms = Date.now() - d.startTime
+	if (ms <= 0) return
+	const sec = ms / 1000
+	if (d.panDir !== 0 && d.panSpeed > 0) {
+		const dps = (d.panSpeed / 24) * panDpsMax(self)
+		self.state.panDeg = clampPan((self.state.panDeg || 0) + d.panDir * dps * sec)
 		self.setVariableValues({ pan_degrees: self.state.panDeg.toFixed(1) })
 	}
-	self._panRunning = false
-}
-
-async function driveStepTilt(self, deg, speed) {
-	if (self._tiltPending === undefined) self._tiltPending = 0
-	self._tiltPending = Math.max(-15, Math.min(15, self._tiltPending + deg))
-	if (self._tiltRunning) return
-	self._tiltRunning = true
-	while (Math.abs(self._tiltPending) > 0.05) {
-		const chunk = Math.max(-3, Math.min(3, self._tiltPending))
-		const absDeg = Math.abs(chunk)
-		const dir = chunk > 0 ? C.PT_DIR.UP : C.PT_DIR.DOWN
-		const ms = Math.max(30, Math.round(absDeg * mpd(self)))
-		await self.send(C.ptDrive(dir, speed, speed))
-		await new Promise((r) => setTimeout(r, ms))
-		await self.send(C.ptDrive(C.PT_DIR.STOP))
-		self.state.tiltDeg = (self.state.tiltDeg || 0) + chunk
-		self._tiltPending -= chunk
+	if (d.tiltDir !== 0 && d.tiltSpeed > 0) {
+		const dps = (d.tiltSpeed / 20) * tiltDpsMax(self)
+		self.state.tiltDeg = clampTilt((self.state.tiltDeg || 0) + d.tiltDir * dps * sec)
 		self.setVariableValues({ tilt_degrees: self.state.tiltDeg.toFixed(1) })
 	}
-	self._tiltRunning = false
-}
-
-/** Kept for backward compatibility with any code that still calls it. */
-async function driveStep(self, dir, deg, speed) {
-	const ms = Math.max(30, Math.round(Math.abs(deg) * mpd(self)))
-	await self.send(C.ptDrive(dir, speed, speed))
-	await new Promise((r) => setTimeout(r, ms))
-	await self.send(C.ptDrive(C.PT_DIR.STOP))
 }
 
 export function getActions(self) {
 	return {
-		/* ───────── Pan / Tilt drive (hold style) ───────── */
+		/* ───────── Pan / Tilt drive (hold style — tracks elapsed time for pan_degrees / tilt_degrees) ───────── */
 		pt_up: {
 			name: 'Pan/Tilt: Up (hold)',
 			options: [
 				{ type: 'dropdown', id: 'tilt', label: 'Tilt Speed', default: self.config.tiltSpeed || 10, choices: TILT_SPEEDS },
 			],
-			callback: async ({ options }) => self.send(C.ptDrive(C.PT_DIR.UP, self.config.panSpeed, +options.tilt)),
+			callback: async ({ options }) => {
+				startDrive(self, 0, +1, self.config.panSpeed, +options.tilt)
+				await self.send(C.ptDrive(C.PT_DIR.UP, self.config.panSpeed, +options.tilt))
+			},
 		},
 		pt_down: {
 			name: 'Pan/Tilt: Down (hold)',
 			options: [
 				{ type: 'dropdown', id: 'tilt', label: 'Tilt Speed', default: self.config.tiltSpeed || 10, choices: TILT_SPEEDS },
 			],
-			callback: async ({ options }) => self.send(C.ptDrive(C.PT_DIR.DOWN, self.config.panSpeed, +options.tilt)),
+			callback: async ({ options }) => {
+				startDrive(self, 0, -1, self.config.panSpeed, +options.tilt)
+				await self.send(C.ptDrive(C.PT_DIR.DOWN, self.config.panSpeed, +options.tilt))
+			},
 		},
 		pt_left: {
 			name: 'Pan/Tilt: Left (hold)',
 			options: [
 				{ type: 'dropdown', id: 'pan', label: 'Pan Speed', default: self.config.panSpeed || 12, choices: PAN_SPEEDS },
 			],
-			callback: async ({ options }) => self.send(C.ptDrive(C.PT_DIR.LEFT, +options.pan, self.config.tiltSpeed)),
+			callback: async ({ options }) => {
+				startDrive(self, -1, 0, +options.pan, self.config.tiltSpeed)
+				await self.send(C.ptDrive(C.PT_DIR.LEFT, +options.pan, self.config.tiltSpeed))
+			},
 		},
 		pt_right: {
 			name: 'Pan/Tilt: Right (hold)',
 			options: [
 				{ type: 'dropdown', id: 'pan', label: 'Pan Speed', default: self.config.panSpeed || 12, choices: PAN_SPEEDS },
 			],
-			callback: async ({ options }) => self.send(C.ptDrive(C.PT_DIR.RIGHT, +options.pan, self.config.tiltSpeed)),
+			callback: async ({ options }) => {
+				startDrive(self, +1, 0, +options.pan, self.config.tiltSpeed)
+				await self.send(C.ptDrive(C.PT_DIR.RIGHT, +options.pan, self.config.tiltSpeed))
+			},
 		},
-		pt_up_left:    { name: 'Pan/Tilt: Up-Left (hold)',    options: [], callback: async () => self.send(C.ptDrive(C.PT_DIR.UP_LEFT,    self.config.panSpeed, self.config.tiltSpeed)) },
-		pt_up_right:   { name: 'Pan/Tilt: Up-Right (hold)',   options: [], callback: async () => self.send(C.ptDrive(C.PT_DIR.UP_RIGHT,   self.config.panSpeed, self.config.tiltSpeed)) },
-		pt_down_left:  { name: 'Pan/Tilt: Down-Left (hold)',  options: [], callback: async () => self.send(C.ptDrive(C.PT_DIR.DOWN_LEFT,  self.config.panSpeed, self.config.tiltSpeed)) },
-		pt_down_right: { name: 'Pan/Tilt: Down-Right (hold)', options: [], callback: async () => self.send(C.ptDrive(C.PT_DIR.DOWN_RIGHT, self.config.panSpeed, self.config.tiltSpeed)) },
-		pt_stop: { name: 'Pan/Tilt: Stop', options: [], callback: async () => self.send(C.ptDrive(C.PT_DIR.STOP)) },
+		pt_up_left: {
+			name: 'Pan/Tilt: Up-Left (hold)',
+			options: [],
+			callback: async () => {
+				startDrive(self, -1, +1, self.config.panSpeed, self.config.tiltSpeed)
+				await self.send(C.ptDrive(C.PT_DIR.UP_LEFT, self.config.panSpeed, self.config.tiltSpeed))
+			},
+		},
+		pt_up_right: {
+			name: 'Pan/Tilt: Up-Right (hold)',
+			options: [],
+			callback: async () => {
+				startDrive(self, +1, +1, self.config.panSpeed, self.config.tiltSpeed)
+				await self.send(C.ptDrive(C.PT_DIR.UP_RIGHT, self.config.panSpeed, self.config.tiltSpeed))
+			},
+		},
+		pt_down_left: {
+			name: 'Pan/Tilt: Down-Left (hold)',
+			options: [],
+			callback: async () => {
+				startDrive(self, -1, -1, self.config.panSpeed, self.config.tiltSpeed)
+				await self.send(C.ptDrive(C.PT_DIR.DOWN_LEFT, self.config.panSpeed, self.config.tiltSpeed))
+			},
+		},
+		pt_down_right: {
+			name: 'Pan/Tilt: Down-Right (hold)',
+			options: [],
+			callback: async () => {
+				startDrive(self, +1, -1, self.config.panSpeed, self.config.tiltSpeed)
+				await self.send(C.ptDrive(C.PT_DIR.DOWN_RIGHT, self.config.panSpeed, self.config.tiltSpeed))
+			},
+		},
+		pt_stop: {
+			name: 'Pan/Tilt: Stop',
+			options: [],
+			callback: async () => {
+				finishDrive(self)
+				await self.send(C.ptDrive(C.PT_DIR.STOP))
+			},
+		},
 
 		pt_home: {
 			name: 'Pan/Tilt: Home (true center + wide zoom)',
@@ -200,7 +255,12 @@ export function getActions(self) {
 				pulse(self, 'pt', 'D', () => C.ptDrive(C.PT_DIR.DOWN, self.config.panSpeed, +options.speed), () => C.ptDrive(C.PT_DIR.STOP), +options.holdMs),
 		},
 
-		/* ───────── Pan / Tilt rotary STEP (variant-aware) ───────── */
+		/* ───────── Pan / Tilt rotary STEP (absolute-degree mapping — works on both variants) ─────────
+		 * Every click adjusts an internal degree counter and schedules a single throttled
+		 * ptAbsolute command. Fast dial spins are coalesced into the latest target so 37 clicks
+		 * to the right end at exactly +37° from the previous position (subject to unitsPerDegree
+		 * calibration). Works because Tenveo NDI firmware DOES accept ptAbsolute even though it
+		 * ignores relative Pan/Tilt commands. */
 		pan_step_left: {
 			name: 'Rotary STEP: Pan Left (° per click)',
 			options: [
@@ -208,15 +268,9 @@ export function getActions(self) {
 				{ type: 'dropdown', id: 'speed', label: 'Move speed', default: self.config.panSpeed || 12, choices: PAN_SPEEDS },
 			],
 			callback: async ({ options }) => {
-				if (isNdi(self)) {
-					driveStepPan(self, -(+options.deg), +options.speed)
-				} else {
-					self.state.panDeg = (self.state.panDeg || 0) - +options.deg
-					const panU = Math.round(self.state.panDeg * upd(self))
-					const tiltU = Math.round((self.state.tiltDeg || 0) * upd(self))
-					await self.send(C.ptAbsolute(panU, tiltU, +options.speed, self.config.tiltSpeed))
-					self.setVariableValues({ pan_degrees: self.state.panDeg.toFixed(1) })
-				}
+				self.state.panDeg = clampPan((self.state.panDeg || 0) - +options.deg)
+				self.setVariableValues({ pan_degrees: self.state.panDeg.toFixed(1) })
+				sendPtAbsoluteThrottled(self, +options.speed, self.config.tiltSpeed || 10)
 			},
 		},
 		pan_step_right: {
@@ -226,15 +280,9 @@ export function getActions(self) {
 				{ type: 'dropdown', id: 'speed', label: 'Move speed', default: self.config.panSpeed || 12, choices: PAN_SPEEDS },
 			],
 			callback: async ({ options }) => {
-				if (isNdi(self)) {
-					driveStepPan(self, +options.deg, +options.speed)
-				} else {
-					self.state.panDeg = (self.state.panDeg || 0) + +options.deg
-					const panU = Math.round(self.state.panDeg * upd(self))
-					const tiltU = Math.round((self.state.tiltDeg || 0) * upd(self))
-					await self.send(C.ptAbsolute(panU, tiltU, +options.speed, self.config.tiltSpeed))
-					self.setVariableValues({ pan_degrees: self.state.panDeg.toFixed(1) })
-				}
+				self.state.panDeg = clampPan((self.state.panDeg || 0) + +options.deg)
+				self.setVariableValues({ pan_degrees: self.state.panDeg.toFixed(1) })
+				sendPtAbsoluteThrottled(self, +options.speed, self.config.tiltSpeed || 10)
 			},
 		},
 		tilt_step_up: {
@@ -244,15 +292,9 @@ export function getActions(self) {
 				{ type: 'dropdown', id: 'speed', label: 'Move speed', default: self.config.tiltSpeed || 10, choices: TILT_SPEEDS },
 			],
 			callback: async ({ options }) => {
-				if (isNdi(self)) {
-					driveStepTilt(self, +options.deg, +options.speed)
-				} else {
-					self.state.tiltDeg = (self.state.tiltDeg || 0) + +options.deg
-					const panU = Math.round((self.state.panDeg || 0) * upd(self))
-					const tiltU = Math.round(self.state.tiltDeg * upd(self))
-					await self.send(C.ptAbsolute(panU, tiltU, self.config.panSpeed, +options.speed))
-					self.setVariableValues({ tilt_degrees: self.state.tiltDeg.toFixed(1) })
-				}
+				self.state.tiltDeg = clampTilt((self.state.tiltDeg || 0) + +options.deg)
+				self.setVariableValues({ tilt_degrees: self.state.tiltDeg.toFixed(1) })
+				sendPtAbsoluteThrottled(self, self.config.panSpeed || 12, +options.speed)
 			},
 		},
 		tilt_step_down: {
@@ -262,15 +304,18 @@ export function getActions(self) {
 				{ type: 'dropdown', id: 'speed', label: 'Move speed', default: self.config.tiltSpeed || 10, choices: TILT_SPEEDS },
 			],
 			callback: async ({ options }) => {
-				if (isNdi(self)) {
-					driveStepTilt(self, -(+options.deg), +options.speed)
-				} else {
-					self.state.tiltDeg = (self.state.tiltDeg || 0) - +options.deg
-					const panU = Math.round((self.state.panDeg || 0) * upd(self))
-					const tiltU = Math.round(self.state.tiltDeg * upd(self))
-					await self.send(C.ptAbsolute(panU, tiltU, self.config.panSpeed, +options.speed))
-					self.setVariableValues({ tilt_degrees: self.state.tiltDeg.toFixed(1) })
-				}
+				self.state.tiltDeg = clampTilt((self.state.tiltDeg || 0) - +options.deg)
+				self.setVariableValues({ tilt_degrees: self.state.tiltDeg.toFixed(1) })
+				sendPtAbsoluteThrottled(self, self.config.panSpeed || 12, +options.speed)
+			},
+		},
+		pt_step_reset: {
+			name: 'Rotary STEP: Reset degree counter (no camera movement)',
+			options: [],
+			callback: async () => {
+				self.state.panDeg = 0
+				self.state.tiltDeg = 0
+				self.setVariableValues({ pan_degrees: '0.0', tilt_degrees: '0.0' })
 			},
 		},
 

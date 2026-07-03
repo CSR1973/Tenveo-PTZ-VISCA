@@ -66,13 +66,26 @@
 - Mock camera + CLI tester for offline validation
 - Web companion: catalog browser, packet inspector, connection-wizard, CLI snippets
 
+## What's implemented (2026-02-XX — v1.4.0)
+- **Rotary STEP Pan/Tilt rewritten** to use **absolute-degree mapping** on both variants (Standard + NDI).
+  Every click adjusts an internal degree counter and schedules a single **throttled ptAbsolute
+  command (30 ms coalesce window)**. Fast dial spins now end at exactly the summed target position
+  (e.g. 37 quick clicks right = +37° from previous position). Fixes NDI-variant erratic 1°/10° behaviour.
+- **Pan/Tilt HOLD (`pt_up/down/left/right/diagonals`) now updates `pan_degrees` / `tilt_degrees`**
+  on release, using elapsed time × configured °/s calibration. `pt_stop` finalises the tracking.
+- New action: **`pt_step_reset`** — zeroes the internal degree counter without moving the camera
+  (useful when the physical camera has been re-homed manually).
+- New config fields: `panDegPerSec` (default 100 @ speed 24), `tiltDegPerSec` (default 60 @ speed 20)
+  for HOLD calibration. Removed the now-unused `msPerDegree` field.
+- Package version bumped to **1.4.0**, tarball at `/app/companion-module-tenveo-ptz/pkg/tenveo-ptz-1.4.0.tgz`.
+
 ## Not implemented / Future backlog
-- P1 — Real-camera integration testing (user has 4 cameras at 192.168.88.x; outside the cloud container's reach)
+- P1 — Real-camera calibration of `unitsPerDegree` (default 14) and `panDegPerSec` / `tiltDegPerSec`
+  on the user's VHD20HAN via observed physical movement
 - P2 — Custom IP-Visca header for Sony-style daisy-chain replies
-- P2 — Pan/Tilt position absolute-move calibration per Tenveo firmware
 - P2 — Optional TCP transport (some firmwares expose VISCA over TCP on port 1259)
 - P3 — Companion v2/v3 backport
-- P3 — Web UI: live UDP probe to verify camera reachability from the user's machine (requires running backend on user's LAN)
+- P3 — Web UI: live UDP probe to verify camera reachability from the user's machine
 
 ## How the user verifies it
 1. Copy `/app/companion-module-tenveo-ptz/` to a machine on the 192.168.88.0/24 LAN
