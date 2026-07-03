@@ -66,6 +66,19 @@
 - Mock camera + CLI tester for offline validation
 - Web companion: catalog browser, packet inspector, connection-wizard, CLI snippets
 
+## What's implemented (2026-02-XX — v1.9.0)
+- **Fixed empty focus variables** — same root cause as the v1.7.0 zoom bug: Tenveo NDI firmware
+  silently drops `inqFocusPos` and `state.focusPos` was initialised to `null`. Fix mirrors the zoom
+  drive+auto-stop pattern:
+  - `state.focusPos` now initialises to `0` (was `null`).
+  - New helpers `updateFocusVars(self)` and `focusDriveStep(self, dir, speed, idleMs)`.
+  - `focus_near`, `focus_far`, `focus_stop`, and new `focus_step_near`/`focus_step_far` all
+    record drive start/speed/direction and flush distance on stop → `focus_position` and
+    `focus_percent` publish unconditionally, no longer depending on camera reply.
+  - New `focus_reset_tracker` action to seed/zero the tracker without moving the camera.
+  - New config field `focusUnitsPerSec` (default 3200 units/s @ speed 7).
+- Tests: 179+/179+ across 6 suites.
+
 ## What's implemented (2026-02-XX — v1.8.0)
 - **Fixed "Home: Tilt only also homes pan" bug** — new `refreshPanTiltFromCamera(self)` issues `inqPtPos`
   before pan_home_only / tilt_home_only, reverses the calibration back to fresh degrees, and uses the
