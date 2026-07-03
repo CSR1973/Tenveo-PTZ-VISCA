@@ -27,19 +27,43 @@ function pulse(self, key, dirLabel, cmdFn, stopCmdFn, holdMs) {
 	}, holdMs)
 }
 
-/** Read calibrated units-per-degree from config (default 14). */
-const upd = (self) => Math.max(1, +self.config.unitsPerDegree || 14)
 /** Pan/Tilt max degrees-per-second at top speed (for HOLD duration → degrees tracking). */
 const panDpsMax = (self) => Math.max(1, +self.config.panDegPerSec || 100)
 const tiltDpsMax = (self) => Math.max(1, +self.config.tiltDegPerSec || 60)
 /** Is this connection configured as an NDI-quirks camera? */
 const isNdi = (self) => (self.config.variant || 'standard') === 'ndi'
 
-/** Soft-limit ranges used for the internal degree tracker. Tenveo VHD20 covers roughly ±170° pan / ±30° tilt. */
-const PAN_LIMIT = 170
-const TILT_LIMIT = 30
-const clampPan = (d) => Math.max(-PAN_LIMIT, Math.min(PAN_LIMIT, d))
-const clampTilt = (d) => Math.max(-TILT_LIMIT, Math.min(TILT_LIMIT, d))
+/* ─── Pan/Tilt absolute-position calibration (per-camera).
+ *   panU  = panCenter  + panDeg  × panUnitsPerDeg   (flip sign of panUnitsPerDeg to invert)
+ *   tiltU = tiltCenter + tiltDeg × tiltUnitsPerDeg  (flip sign of tiltUnitsPerDeg to invert)
+ * Result is masked into signed 16-bit so ptAbsolute can encode it correctly on the wire. */
+const panCenter = (self) => (self.config.panCenter ?? 19050) | 0
+const tiltCenter = (self) => (self.config.tiltCenter ?? 8000) | 0
+const panUPD = (self) => (Number.isFinite(+self.config.panUnitsPerDeg) ? +self.config.panUnitsPerDeg : 108.74)
+const tiltUPD = (self) => (Number.isFinite(+self.config.tiltUnitsPerDeg) ? +self.config.tiltUnitsPerDeg : 86.66)
+const panMinDeg = (self) => (Number.isFinite(+self.config.panMinDeg) ? +self.config.panMinDeg : -175)
+const panMaxDeg = (self) => (Number.isFinite(+self.config.panMaxDeg) ? +self.config.panMaxDeg : 175)
+const tiltMinDeg = (self) => (Number.isFinite(+self.config.tiltMinDeg) ? +self.config.tiltMinDeg : -90)
+const tiltMaxDeg = (self) => (Number.isFinite(+self.config.tiltMaxDeg) ? +self.config.tiltMaxDeg : 90)
+
+const clampPanDeg = (self, d) => Math.max(panMinDeg(self), Math.min(panMaxDeg(self), d))
+const clampTiltDeg = (self, d) => Math.max(tiltMinDeg(self), Math.min(tiltMaxDeg(self), d))
+
+/** Convert an unbounded integer into a signed 16-bit representation (-32768..32767).
+ *  ptAbsolute in commands.js already handles this on the wire, but we normalise here so
+ *  logs and any downstream consumers see a value inside int16 range. */
+function toInt16(x) {
+	let v = ((x | 0) & 0xffff)
+	if (v >= 0x8000) v -= 0x10000
+	return v
+}
+
+/** Compute the (panU, tiltU) VISCA units for the current tracked degrees. */
+function absoluteUnits(self) {
+	const panU = toInt16(Math.round(panCenter(self) + (self.state.panDeg || 0) * panUPD(self)))
+	const tiltU = toInt16(Math.round(tiltCenter(self) + (self.state.tiltDeg || 0) * tiltUPD(self)))
+	return { panU, tiltU }
+}
 
 /** Coalesce rapid Pan/Tilt absolute-position updates so fast dial spins don't flood the socket.
  *  Every click updates state.panDeg/tiltDeg + the variable immediately, but only one ptAbsolute
@@ -50,8 +74,7 @@ function sendPtAbsoluteThrottled(self, panSpeed, tiltSpeed) {
 	if (self._ptSendTimer) return
 	self._ptSendTimer = setTimeout(async () => {
 		self._ptSendTimer = null
-		const panU = Math.round((self.state.panDeg || 0) * upd(self))
-		const tiltU = Math.round((self.state.tiltDeg || 0) * upd(self))
+		const { panU, tiltU } = absoluteUnits(self)
 		try {
 			await self.send(C.ptAbsolute(panU, tiltU, self._ptTargetPanSpeed, self._ptTargetTiltSpeed))
 		} catch (e) {
@@ -85,12 +108,12 @@ function finishDrive(self) {
 	const sec = ms / 1000
 	if (d.panDir !== 0 && d.panSpeed > 0) {
 		const dps = (d.panSpeed / 24) * panDpsMax(self)
-		self.state.panDeg = clampPan((self.state.panDeg || 0) + d.panDir * dps * sec)
+		self.state.panDeg = clampPanDeg(self, (self.state.panDeg || 0) + d.panDir * dps * sec)
 		self.setVariableValues({ pan_degrees: self.state.panDeg.toFixed(1) })
 	}
 	if (d.tiltDir !== 0 && d.tiltSpeed > 0) {
 		const dps = (d.tiltSpeed / 20) * tiltDpsMax(self)
-		self.state.tiltDeg = clampTilt((self.state.tiltDeg || 0) + d.tiltDir * dps * sec)
+		self.state.tiltDeg = clampTiltDeg(self, (self.state.tiltDeg || 0) + d.tiltDir * dps * sec)
 		self.setVariableValues({ tilt_degrees: self.state.tiltDeg.toFixed(1) })
 	}
 }
@@ -268,7 +291,7 @@ export function getActions(self) {
 				{ type: 'dropdown', id: 'speed', label: 'Move speed', default: self.config.panSpeed || 12, choices: PAN_SPEEDS },
 			],
 			callback: async ({ options }) => {
-				self.state.panDeg = clampPan((self.state.panDeg || 0) - +options.deg)
+				self.state.panDeg = clampPanDeg(self, (self.state.panDeg || 0) - +options.deg)
 				self.setVariableValues({ pan_degrees: self.state.panDeg.toFixed(1) })
 				sendPtAbsoluteThrottled(self, +options.speed, self.config.tiltSpeed || 10)
 			},
@@ -280,7 +303,7 @@ export function getActions(self) {
 				{ type: 'dropdown', id: 'speed', label: 'Move speed', default: self.config.panSpeed || 12, choices: PAN_SPEEDS },
 			],
 			callback: async ({ options }) => {
-				self.state.panDeg = clampPan((self.state.panDeg || 0) + +options.deg)
+				self.state.panDeg = clampPanDeg(self, (self.state.panDeg || 0) + +options.deg)
 				self.setVariableValues({ pan_degrees: self.state.panDeg.toFixed(1) })
 				sendPtAbsoluteThrottled(self, +options.speed, self.config.tiltSpeed || 10)
 			},
@@ -292,7 +315,7 @@ export function getActions(self) {
 				{ type: 'dropdown', id: 'speed', label: 'Move speed', default: self.config.tiltSpeed || 10, choices: TILT_SPEEDS },
 			],
 			callback: async ({ options }) => {
-				self.state.tiltDeg = clampTilt((self.state.tiltDeg || 0) + +options.deg)
+				self.state.tiltDeg = clampTiltDeg(self, (self.state.tiltDeg || 0) + +options.deg)
 				self.setVariableValues({ tilt_degrees: self.state.tiltDeg.toFixed(1) })
 				sendPtAbsoluteThrottled(self, self.config.panSpeed || 12, +options.speed)
 			},
@@ -304,7 +327,7 @@ export function getActions(self) {
 				{ type: 'dropdown', id: 'speed', label: 'Move speed', default: self.config.tiltSpeed || 10, choices: TILT_SPEEDS },
 			],
 			callback: async ({ options }) => {
-				self.state.tiltDeg = clampTilt((self.state.tiltDeg || 0) - +options.deg)
+				self.state.tiltDeg = clampTiltDeg(self, (self.state.tiltDeg || 0) - +options.deg)
 				self.setVariableValues({ tilt_degrees: self.state.tiltDeg.toFixed(1) })
 				sendPtAbsoluteThrottled(self, self.config.panSpeed || 12, +options.speed)
 			},

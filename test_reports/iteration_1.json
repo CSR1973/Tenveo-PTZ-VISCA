@@ -1,0 +1,37 @@
+{
+  "summary": "Tested the Companion module Rotary STEP Pan/Tilt rewrite that uses ptAbsolute VISCA packets with the user's field-calibrated numbers (pan center 19050 / 108.74 units per deg, tilt center 8000 / 86.66 units per deg). Both the primary integration test (26/26 assertions) and an independent 4-scenario re-verification harness pass with exit code 0. Syntax checks (node --check) pass for both src/actions.js and src/config.js. No FastAPI/React app is involved — this is a Node ESM module.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/companion-module-tenveo-ptz/test/step-calibration.test.js",
+    "/app/companion-module-tenveo-ptz/test/independent-verify.test.js"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "src/actions.js is 767 lines — approaching the 700-line threshold; consider splitting STEP actions, HOLD/drive tracking, and preset actions into separate modules for future maintainability (non-blocking).",
+    "absoluteUnits() rounds AFTER adding to center and BEFORE toInt16 masking — this is correct for the calibration but relies on Math.round; the tests confirm off-by-one only appears at ±175° extreme (panU=21 vs raw 20.5), which is within the user's ±5 tolerance for the LEFT extreme.",
+    "sendPtAbsoluteThrottled coalesces on a 30 ms window using a single timer; this is why 37 rapid clicks emit exactly one packet — verified in Test 2 and Scenario B.",
+    "toInt16 correctly wraps positive units > 32767 into negative int16 (verified at +175° producing panU = -27456), matching how the camera reports positions on the wire.",
+    "Config schema exposes panCenter, panUnitsPerDeg, panMin/MaxDeg, tiltCenter, tiltUnitsPerDeg, tiltMin/MaxDeg, panDegPerSec, tiltDegPerSec — all with sane defaults matching the user's NDI camera. Signs on units-per-degree can be flipped to invert direction (verified in Test 7)."
+  ],
+  "updated_files": [
+    "/app/companion-module-tenveo-ptz/test/independent-verify.test.js (new — independent re-verification of the four review-request claims using fresh module instances)"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "n/a (no frontend in this module)"
+  },
+  "test_credentials": "n/a — no auth involved; camera hardware is on the user's LAN and not reachable from this container, so all testing uses fake sockets in-process.",
+  "seed_data_creation": "None. Tests instantiate a fake `self` object with the default calibration inline.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run `cd /app/companion-module-tenveo-ptz && node test/step-calibration.test.js` (primary, 26 assertions) and `node test/independent-verify.test.js` (4 scenarios, redundant sanity). Both must exit 0. There is no supervisor service to restart for this module; the /app/backend FastAPI stub is unrelated. If the user later adjusts calibration defaults, update the expected values in step-calibration.test.js accordingly.",
+  "rca_of_the_issue": "Original bug: STEP Pan/Tilt used relative moves (ptRelative) whose per-step units did not correspond to real degrees on the VHD20HAN NDI-variant camera, so N clicks did not sum to N × deg-per-click. Fix (already in place): actions now maintain an integer state.panDeg / state.tiltDeg counter clamped to [-175..+175] and [-90..+90], compute VISCA units via panCenter + panDeg × panUnitsPerDeg (masked to signed 16-bit), and emit exactly one coalesced ptAbsolute packet per ~30 ms window carrying the latest target. Verified: single click right → 19159; 37 clicks right → one packet, panU=23073; 200 clicks left → clamped -175, panU≈21 (matches user's physical LEFT extreme ~20); 10 clicks tilt up → tiltU=8867; +175° wraps to int16 (-27456); flipping sign of units-per-degree inverts direction; pt_step_reset zeroes counters and sends no packet; VISCA nibble encoding of ptAbsolute is byte-exact."
+}
