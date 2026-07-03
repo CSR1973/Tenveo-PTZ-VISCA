@@ -66,6 +66,18 @@
 - Mock camera + CLI tester for offline validation
 - Web companion: catalog browser, packet inspector, connection-wizard, CLI snippets
 
+## What's implemented (2026-02-XX — v1.10.0)
+- **Fixed focus + zoom rotary STEP variables that stayed at 0.** Root cause was two-fold:
+  (a) both `zoomDriveStep` and `focusDriveStep` only published variables when the auto-stop
+  timer fired, so in real Companion runtime the update didn't propagate reliably; (b) the
+  poll's `_setZoomPos` / `_setFocusPos` would overwrite the tracker to 0 whenever the camera
+  didn't return a good reply.
+- **Fix:** publish variables on EVERY click using `baseline + elapsed × unitsPerSec × direction`
+  (real-time estimation). Auto-stop still runs to refine the final value + send zoomStop/focusStop.
+  Poll handlers now guard: if a drive is in progress or its auto-stop is pending, the polled value
+  is IGNORED — the module-side estimate stays authoritative.
+- Tests: 201+/201+ across 7 suites.
+
 ## What's implemented (2026-02-XX — v1.9.0)
 - **Fixed empty focus variables** — same root cause as the v1.7.0 zoom bug: Tenveo NDI firmware
   silently drops `inqFocusPos` and `state.focusPos` was initialised to `null`. Fix mirrors the zoom
