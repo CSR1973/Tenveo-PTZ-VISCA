@@ -144,6 +144,15 @@ export function getConfigFields() {
 		},
 		{
 			type: 'number',
+			id: 'focusUnitsPerSec',
+			label: 'Focus units/s @ speed 7 (for focus_position tracking)',
+			width: 3,
+			default: 3200,
+			min: 100,
+			max: 16384,
+		},
+		{
+			type: 'number',
 			id: 'panDegPerSec',
 			label: 'Pan °/s @ speed 24 (HOLD tracking calibration)',
 			width: 3,

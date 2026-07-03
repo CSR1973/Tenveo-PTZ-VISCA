@@ -125,6 +125,58 @@ function zoomDriveStep(self, dir, speed, idleMs) {
 	}, idleMs)
 }
 
+/** Update focus_position + focus_percent variables from state.focusPos (0..16384). */
+function updateFocusVars(self) {
+	const pos = Math.max(0, Math.min(16384, Math.round(self.state.focusPos || 0)))
+	self.setVariableValues({
+		focus_position: pos,
+		focus_percent: Math.round((pos / 16384) * 100),
+	})
+}
+
+/** Focus units-per-second at the given VISCA focus speed (0..7).
+ *  Uses config.focusUnitsPerSec (default 3200 = full range in ~5s at speed 7). */
+function focusUnitsPerSec(self, speed) {
+	const max = Math.max(100, +self.config.focusUnitsPerSec || 3200)
+	const s = Math.max(0, Math.min(7, +speed))
+	return max * (0.125 + (0.875 * s) / 7)
+}
+
+/** Variable-speed focus drive with auto-stop after `idleMs` of no further clicks.
+ *  Same pattern as zoomDriveStep; keeps state.focusPos in sync via elapsed time × units/s. */
+function focusDriveStep(self, dir, speed, idleMs) {
+	const cmd = dir === 'far' ? C.focusFarVar(speed) : C.focusNearVar(speed)
+	const now = Date.now()
+	if (self._focusDriveDir !== dir || self._focusDriveSpeed !== speed) {
+		if (self._focusDriveDir && self._focusDriveStart) {
+			const elapsed = (now - self._focusDriveStart) / 1000
+			const delta = elapsed * focusUnitsPerSec(self, self._focusDriveSpeed) *
+				(self._focusDriveDir === 'far' ? 1 : -1)
+			self.state.focusPos = Math.max(0, Math.min(16384, (self.state.focusPos || 0) + delta))
+			updateFocusVars(self)
+		}
+		self._focusDriveDir = dir
+		self._focusDriveSpeed = speed
+		self._focusDriveStart = now
+		self.send(cmd).catch((e) => self.log('error', `focus drive send failed: ${e.message}`))
+	}
+	if (self._focusStopTimer) clearTimeout(self._focusStopTimer)
+	self._focusStopTimer = setTimeout(async () => {
+		self._focusStopTimer = null
+		const startTime = self._focusDriveStart || Date.now()
+		const spd = self._focusDriveSpeed || 0
+		const driveDir = self._focusDriveDir
+		self._focusDriveDir = null
+		self._focusDriveSpeed = 0
+		self._focusDriveStart = null
+		try { await self.send(C.focusStop()) } catch (e) { self.log('error', `focusStop send failed: ${e.message}`) }
+		const elapsed = (Date.now() - startTime) / 1000
+		const delta = elapsed * focusUnitsPerSec(self, spd) * (driveDir === 'far' ? 1 : -1)
+		self.state.focusPos = Math.max(0, Math.min(16384, (self.state.focusPos || 0) + delta))
+		updateFocusVars(self)
+	}, idleMs)
+}
+
 /** Best-effort refresh of state.panDeg / state.tiltDeg from the physical camera.
  *  Uses inqPtPos when a visca socket is available. Silently returns if the camera
  *  doesn't answer — tracker just stays at its previous estimate. */
@@ -573,14 +625,43 @@ export function getActions(self) {
 		focus_near: {
 			name: 'Focus: Near',
 			options: [{ type: 'dropdown', id: 'speed', label: 'Speed', default: 4, choices: ZOOM_SPEEDS }],
-			callback: async ({ options }) => self.send(C.focusNearVar(+options.speed)),
+			callback: async ({ options }) => {
+				self._focusDriveDir = 'near'
+				self._focusDriveSpeed = +options.speed
+				self._focusDriveStart = Date.now()
+				await self.send(C.focusNearVar(+options.speed))
+			},
 		},
 		focus_far: {
 			name: 'Focus: Far',
 			options: [{ type: 'dropdown', id: 'speed', label: 'Speed', default: 4, choices: ZOOM_SPEEDS }],
-			callback: async ({ options }) => self.send(C.focusFarVar(+options.speed)),
+			callback: async ({ options }) => {
+				self._focusDriveDir = 'far'
+				self._focusDriveSpeed = +options.speed
+				self._focusDriveStart = Date.now()
+				await self.send(C.focusFarVar(+options.speed))
+			},
 		},
-		focus_stop: { name: 'Focus: Stop', options: [], callback: async () => self.send(C.focusStop()) },
+		focus_stop: {
+			name: 'Focus: Stop',
+			options: [],
+			callback: async () => {
+				if (self._focusStopTimer) { clearTimeout(self._focusStopTimer); self._focusStopTimer = null }
+				const startTime = self._focusDriveStart
+				const spd = self._focusDriveSpeed || 0
+				const dir = self._focusDriveDir
+				self._focusDriveDir = null
+				self._focusDriveSpeed = 0
+				self._focusDriveStart = null
+				await self.send(C.focusStop())
+				if (dir && startTime) {
+					const elapsed = (Date.now() - startTime) / 1000
+					const delta = elapsed * focusUnitsPerSec(self, spd) * (dir === 'far' ? 1 : -1)
+					self.state.focusPos = Math.max(0, Math.min(16384, (self.state.focusPos || 0) + delta))
+					updateFocusVars(self)
+				}
+			},
+		},
 		focus_lock_on: { name: 'Focus: Lock On', options: [], callback: async () => self.send(C.focusLockOn()) },
 		focus_lock_off: { name: 'Focus: Lock Off', options: [], callback: async () => self.send(C.focusLockOff()) },
 		focus_direct: {
@@ -611,6 +692,36 @@ export function getActions(self) {
 				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 120, min: 50, max: 2000 },
 			],
 			callback: async ({ options }) => pulse(self, 'focus', 'F', () => C.focusFarVar(+options.speed), C.focusStop, +options.holdMs),
+		},
+		focus_step_near: {
+			name: 'Rotary STEP: Focus Near — variable-speed drive + auto-stop',
+			options: [
+				{ type: 'dropdown', id: 'speed', label: 'Focus speed', default: 4, choices: ZOOM_SPEEDS },
+				{ type: 'number', id: 'idleMs', label: 'Idle time before auto-stop (ms)', default: 250, min: 40, max: 500 },
+			],
+			callback: async ({ options }) => {
+				focusDriveStep(self, 'near', +options.speed, +options.idleMs)
+			},
+		},
+		focus_step_far: {
+			name: 'Rotary STEP: Focus Far — variable-speed drive + auto-stop',
+			options: [
+				{ type: 'dropdown', id: 'speed', label: 'Focus speed', default: 4, choices: ZOOM_SPEEDS },
+				{ type: 'number', id: 'idleMs', label: 'Idle time before auto-stop (ms)', default: 250, min: 40, max: 500 },
+			],
+			callback: async ({ options }) => {
+				focusDriveStep(self, 'far', +options.speed, +options.idleMs)
+			},
+		},
+		focus_reset_tracker: {
+			name: 'Focus: Reset tracker (no camera movement)',
+			options: [
+				{ type: 'number', id: 'pos', label: 'Seed focus_position at (0-16384)', default: 0, min: 0, max: 16384 },
+			],
+			callback: async ({ options }) => {
+				self.state.focusPos = Math.max(0, Math.min(16384, +options.pos))
+				updateFocusVars(self)
+			},
 		},
 
 		/* ───────── Presets (variant-aware) ───────── */

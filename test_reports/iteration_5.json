@@ -1,0 +1,26 @@
+{
+  "summary": "v1.9.0 focus tracking fix verified. All 5 test suites pass with exit code 0: focus-tracking.test.js 40/40, backlight-focus-home.test.js 40/40, axis-home-and-zoom.test.js 32/32, step-calibration.test.js 26/26, independent-verify.test.js all scenarios pass, independent-axis-home.test.js 41/41. Total 179+ assertions all passing. node --check passes for src/actions.js, src/main.js, src/config.js — no crash on module load. Independent verification confirms all 12 review criteria: state.focusPos initialises to 0 (main.js:46), focus_step_far rapid-clicks emit exactly 1 farVar+1 stop (test 3), variables focus_position + focus_percent published after auto-stop with values in [0..100] (test 4), focus_reset_tracker zeroes state without VISCA send (test 6), focus_direct publishes 16384/100% (test 8), focus_near+focus_stop decrements state.focusPos from 5000 → 4036.8 with variable publish (test 5), direction-reversal flush works (test 7 far→near flushes to 5400), config field focusUnitsPerSec default 3200 present (test 10, config.js:147-153). No blocking issues found. Prior testing agent's independent-* scripts still pass unmodified — no adaptation was needed since v1.9.0 focus_step_* actions are new (they don't conflict with old zoom-focused independent tests).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/companion-module-tenveo-ptz/test/focus-tracking.test.js",
+    "/app/companion-module-tenveo-ptz/test/backlight-focus-home.test.js",
+    "/app/companion-module-tenveo-ptz/test/axis-home-and-zoom.test.js",
+    "/app/companion-module-tenveo-ptz/test/step-calibration.test.js",
+    "/app/companion-module-tenveo-ptz/test/independent-verify.test.js",
+    "/app/companion-module-tenveo-ptz/test/independent-axis-home.test.js"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Fix approach is correct: focus now mirrors the well-tested zoom drive+auto-stop pattern from v1.7.0/v1.8.0. Because focus_step_* + focus_near/far/stop all locally track distance via _focusDriveDir/_focusDriveStart/_focusDriveSpeed and publish focus_position/focus_percent unconditionally after every drive, the variables no longer depend on inqFocusPos responses — which were the source of the user bug on Tenveo NDI firmware that silently drops that inquiry.",
+    "Note (minor, non-blocking): main.js _publishStaticVars uses state?.focusPos ?? 0 which is fine, but since focusPos is now always initialised to 0 the ?? is defensive-only. Consider dropping in a future cleanup, not required."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "N/A (backend-only test per request)"},
+  "test_credentials": "N/A",
+  "seed_data_creation": "None. Tests use in-memory fake self objects.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "v1.9.0 focus tracking is fully verified. All existing test suites pass. If a v1.10.0 iteration is needed, the same drive+auto-stop pattern is now consistently applied to both zoom (state.zoomPos + zoomUnitsPerSec) and focus (state.focusPos + focusUnitsPerSec). Pan/tilt use a similar but separate degree-based tracker. Keep independent-verify.test.js and independent-axis-home.test.js in the regression matrix — they're testing-agent-authored but stable and still passing.",
+  "rca of the issue": "Original bug: focus variables always blank because (a) state.focusPos initialised to null so Companion could not resolve $(camera:focus_position) before first inquiry reply, and (b) the Tenveo NDI firmware silently drops CAM_FocusPosInq (81 09 04 48 FF), so no reply ever came. Fix in v1.9.0: (1) state.focusPos = 0 in main.js so variable resolves to '0' immediately; (2) all focus actions now update state.focusPos + call setVariableValues locally without depending on the camera reply, using elapsed-time × focusUnitsPerSec integration (same pattern that fixed the identical zoom bug in v1.7.0). Verified end-to-end via 40/40 focus-tracking assertions."
+}
