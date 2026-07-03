@@ -66,6 +66,20 @@
 - Mock camera + CLI tester for offline validation
 - Web companion: catalog browser, packet inspector, connection-wizard, CLI snippets
 
+## What's implemented (2026-02-XX — v1.5.0)
+- **Rotary STEP Pan/Tilt now uses user-calibrated absolute-position math.** Defaults match the
+  physically measured VHD20HAN: pan center 19050 units, 108.74 units/°; tilt center 8000 units,
+  86.66 units/°; pan limits ±175°; tilt limits ±90°. Formula: `panU = panCenter + panDeg × panUnitsPerDeg`,
+  masked into signed 16-bit for VISCA wire encoding.
+- New configurable calibration fields: `panCenter`, `panUnitsPerDeg`, `panMinDeg`, `panMaxDeg`,
+  `tiltCenter`, `tiltUnitsPerDeg`, `tiltMinDeg`, `tiltMaxDeg`. Direction inversion via sign flip on
+  the units-per-degree field.
+- Coalescing throttle (30 ms window) is retained: 37 rapid clicks → single ptAbsolute packet
+  carrying summed target (~+37° = panU 23073). Confirmed via 26/26 assertion Node harness
+  (`/app/companion-module-tenveo-ptz/test/step-calibration.test.js`) + independent re-verification
+  by testing agent.
+- Package version bumped to **1.5.0**, tarball at `/app/companion-module-tenveo-ptz/tenveo-ptz-1.5.0.tgz`.
+
 ## What's implemented (2026-02-XX — v1.4.0)
 - **Rotary STEP Pan/Tilt rewritten** to use **absolute-degree mapping** on both variants (Standard + NDI).
   Every click adjusts an internal degree counter and schedules a single **throttled ptAbsolute
