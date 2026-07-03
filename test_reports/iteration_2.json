@@ -1,0 +1,38 @@
+{
+  "summary": "Verified iteration 1.6.0 additions: pan_home_only / tilt_home_only / zoom_home_only actions and smoothed direct-position zoom stepping with zoom_percent variable. All 30 assertions in axis-home-and-zoom.test.js pass, all 26 assertions in the step-calibration regression suite still pass, prior independent-verify.test.js still passes, and my newly authored independent-axis-home.test.js (28 assertions, byte-level VISCA decoding on fresh module instances) also passes. `node --check` is clean on src/actions.js, src/config.js, src/main.js, src/variables.js. Exit code 0 on every suite. No camera hardware needed — all validation is against the emitted VISCA byte stream captured through a fake `self.send`.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/companion-module-tenveo-ptz/test/axis-home-and-zoom.test.js",
+    "/app/companion-module-tenveo-ptz/test/step-calibration.test.js",
+    "/app/companion-module-tenveo-ptz/test/independent-verify.test.js",
+    "/app/companion-module-tenveo-ptz/test/independent-axis-home.test.js"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "src/actions.js has grown further with the new home actions and the sendZoomDirectThrottled helper — please consider splitting into smaller modules (pt-actions.js, zoom-actions.js, home-actions.js) once the file crosses ~900 lines. Non-blocking.",
+    "The zoom coalesce window is 40ms and clamps to [0..16384]; state.zoomPos is updated synchronously per click while only ONE zoomDirect packet fires per coalesce window — this correctly matches the user's 'smooth, not steppy' requirement.",
+    "updateZoomVars(self) publishes BOTH zoom_position (raw 0..16384) and zoom_percent (0..100) atomically; main.js._setZoomPos does the same on poll — consistency verified.",
+    "pan_home_only resets state.panDeg to 0 as expected (aligning tracked deg with the homed wire value 19050). tilt_home_only similarly resets state.tiltDeg. zoom_home_only sets state.zoomPos=0. All confirmed byte-level."
+  ],
+  "updated_files": [
+    "/app/companion-module-tenveo-ptz/test/independent-axis-home.test.js (new — independent byte-level verification of the three new home actions + smooth zoom + zoom_percent variable)"
+  ],
+  "success_rate": {
+    "backend": "100% (30/30 primary + 26/26 regression + 28/28 independent)",
+    "frontend": "n/a (Companion Node ESM module, no UI in-repo)"
+  },
+  "test_credentials": "n/a — no auth or network access; tests use a fake `self` with in-memory state.",
+  "seed_data_creation": "None. Each test constructs a fresh fake `self` inline with the user's calibration defaults.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run `cd /app/companion-module-tenveo-ptz && node test/axis-home-and-zoom.test.js && node test/step-calibration.test.js && node test/independent-verify.test.js && node test/independent-axis-home.test.js`. All four must exit 0. Byte format cheatsheet: ptAbsolute is 15 bytes starting 81 01 06 02 SS SS p0 p1 p2 p3 t0 t1 t2 t3 FF (4-nibble pan/tilt). zoomDirect is 9 bytes starting 81 01 04 47 a b c d FF (4-nibble pos 0..16384). Zoom coalesce window is 40ms; give at least 60ms `setTimeout` sleep before asserting single-packet emission after rapid clicks.",
+  "rca_of_the_issue": "n/a — no bug found. Iteration 1.6.0 correctly adds axis-specific home actions (pan_home_only writes panCenter with the currently tracked tilt units, tilt_home_only writes the currently tracked pan units with tiltCenter, zoom_home_only writes zoomDirect(0)) and replaces the fire-and-stop zoom pulsing with a coalesced zoomDirect stepping model that also drives a new zoom_percent variable (0=wide, 100=tele)."
+}

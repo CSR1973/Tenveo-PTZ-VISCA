@@ -58,6 +58,29 @@ function toInt16(x) {
 	return v
 }
 
+/** Update zoom_position + zoom_percent variables from state.zoomPos (0..16384). */
+function updateZoomVars(self) {
+	const pos = Math.max(0, Math.min(16384, Math.round(self.state.zoomPos || 0)))
+	self.setVariableValues({
+		zoom_position: pos,
+		zoom_percent: Math.round((pos / 16384) * 100),
+	})
+}
+
+/** Coalesce rapid Zoom direct-position updates so fast dial spins don't flood the socket. */
+function sendZoomDirectThrottled(self) {
+	if (self._zoomSendTimer) return
+	self._zoomSendTimer = setTimeout(async () => {
+		self._zoomSendTimer = null
+		const pos = Math.max(0, Math.min(16384, Math.round(self.state.zoomPos || 0)))
+		try {
+			await self.send(C.zoomDirect(pos))
+		} catch (e) {
+			self.log('error', `zoomDirect send failed: ${e.message}`)
+		}
+	}, 40)
+}
+
 /** Compute the (panU, tiltU) VISCA units for the current tracked degrees. */
 function absoluteUnits(self) {
 	const panU = toInt16(Math.round(panCenter(self) + (self.state.panDeg || 0) * panUPD(self)))
@@ -215,7 +238,42 @@ export function getActions(self) {
 				await self.send(C.zoomDirect(0))
 				self.state.panDeg = 0
 				self.state.tiltDeg = 0
+				self.state.zoomPos = 0
 				self.setVariableValues({ pan_degrees: '0.0', tilt_degrees: '0.0' })
+				updateZoomVars(self)
+			},
+		},
+		pan_home_only: {
+			name: 'Home: Pan only (to 0°, keeps Tilt & Zoom)',
+			options: [
+				{ type: 'dropdown', id: 'panSpeed', label: 'Pan speed', default: self.config.panSpeed || 12, choices: PAN_SPEEDS },
+			],
+			callback: async ({ options }) => {
+				self.state.panDeg = 0
+				self.setVariableValues({ pan_degrees: '0.0' })
+				const { panU, tiltU } = absoluteUnits(self)
+				await self.send(C.ptAbsolute(panU, tiltU, +options.panSpeed, self.config.tiltSpeed || 10))
+			},
+		},
+		tilt_home_only: {
+			name: 'Home: Tilt only (to 0°, keeps Pan & Zoom)',
+			options: [
+				{ type: 'dropdown', id: 'tiltSpeed', label: 'Tilt speed', default: self.config.tiltSpeed || 10, choices: TILT_SPEEDS },
+			],
+			callback: async ({ options }) => {
+				self.state.tiltDeg = 0
+				self.setVariableValues({ tilt_degrees: '0.0' })
+				const { panU, tiltU } = absoluteUnits(self)
+				await self.send(C.ptAbsolute(panU, tiltU, self.config.panSpeed || 12, +options.tiltSpeed))
+			},
+		},
+		zoom_home_only: {
+			name: 'Home: Zoom only (widest, keeps Pan & Tilt)',
+			options: [],
+			callback: async () => {
+				self.state.zoomPos = 0
+				updateZoomVars(self)
+				await self.send(C.zoomDirect(0))
 			},
 		},
 		pt_reset: {
@@ -357,7 +415,12 @@ export function getActions(self) {
 		zoom_direct: {
 			name: 'Zoom: Direct Position (0-16384)',
 			options: [{ type: 'number', id: 'pos', label: 'Position', default: 0, min: 0, max: 16384 }],
-			callback: async ({ options }) => self.send(C.zoomDirect(+options.pos)),
+			callback: async ({ options }) => {
+				const pos = Math.max(0, Math.min(16384, +options.pos))
+				self.state.zoomPos = pos
+				updateZoomVars(self)
+				await self.send(C.zoomDirect(pos))
+			},
 		},
 		zoom_rotary_in: {
 			name: 'Rotary HOLD: Zoom In',
@@ -376,33 +439,25 @@ export function getActions(self) {
 			callback: async ({ options }) => pulse(self, 'zoom', 'OUT', () => C.zoomWideVar(+options.speed), C.zoomStop, +options.holdMs),
 		},
 		zoom_step_in: {
-			name: 'Rotary STEP: Zoom In (per click, no HOLD — best for NDI)',
+			name: 'Rotary STEP: Zoom In (Tele) — smooth direct-position',
 			options: [
-				{ type: 'dropdown', id: 'speed', label: 'Speed', default: self.config.zoomSpeed || 4, choices: ZOOM_SPEEDS },
-				{ type: 'number', id: 'ms', label: 'Duration per click (ms)', default: 80, min: 20, max: 500 },
+				{ type: 'number', id: 'delta', label: 'Units per click (32-4096; 512 ≈ 32 clicks full range)', default: 512, min: 32, max: 4096 },
 			],
 			callback: async ({ options }) => {
-				if (self._zoomBusy) return
-				self._zoomBusy = true
-				await self.send(C.zoomTeleVar(+options.speed))
-				await new Promise((r) => setTimeout(r, +options.ms))
-				await self.send(C.zoomStop())
-				self._zoomBusy = false
+				self.state.zoomPos = Math.min(16384, Math.max(0, (self.state.zoomPos || 0)) + +options.delta)
+				updateZoomVars(self)
+				sendZoomDirectThrottled(self)
 			},
 		},
 		zoom_step_out: {
-			name: 'Rotary STEP: Zoom Out (per click, no HOLD — best for NDI)',
+			name: 'Rotary STEP: Zoom Out (Wide) — smooth direct-position',
 			options: [
-				{ type: 'dropdown', id: 'speed', label: 'Speed', default: self.config.zoomSpeed || 4, choices: ZOOM_SPEEDS },
-				{ type: 'number', id: 'ms', label: 'Duration per click (ms)', default: 80, min: 20, max: 500 },
+				{ type: 'number', id: 'delta', label: 'Units per click (32-4096; 512 ≈ 32 clicks full range)', default: 512, min: 32, max: 4096 },
 			],
 			callback: async ({ options }) => {
-				if (self._zoomBusy) return
-				self._zoomBusy = true
-				await self.send(C.zoomWideVar(+options.speed))
-				await new Promise((r) => setTimeout(r, +options.ms))
-				await self.send(C.zoomStop())
-				self._zoomBusy = false
+				self.state.zoomPos = Math.max(0, Math.min(16384, (self.state.zoomPos || 0)) - +options.delta)
+				updateZoomVars(self)
+				sendZoomDirectThrottled(self)
 			},
 		},
 

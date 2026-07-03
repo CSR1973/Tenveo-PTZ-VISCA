@@ -94,6 +94,8 @@ class TenveoInstance extends InstanceBase {
 			host: this.config.host || '',
 			pan_degrees: '0.0',
 			tilt_degrees: '0.0',
+			zoom_position: this.state?.zoomPos ?? 0,
+			zoom_percent: Math.round(((this.state?.zoomPos ?? 0) / 16384) * 100),
 			color_temp: this.state?.colorTemp ?? 5600,
 			warmth: 0,
 		})
@@ -250,7 +252,10 @@ class TenveoInstance extends InstanceBase {
 		if (!data || data.length < 4) return
 		const v = C.denibble16(data)
 		this.state.zoomPos = v
-		this.setVariableValues({ zoom_position: v })
+		this.setVariableValues({
+			zoom_position: v,
+			zoom_percent: Math.round((Math.max(0, Math.min(16384, v)) / 16384) * 100),
+		})
 	}
 	_setFocusPos(buf) {
 		const data = C.parseInqReply(buf)

@@ -13,6 +13,7 @@ export function getVariables() {
 		{ variableId: 'iris', name: 'Iris value' },
 		{ variableId: 'shutter', name: 'Shutter value' },
 		{ variableId: 'zoom_position', name: 'Zoom position (0-16384)' },
+		{ variableId: 'zoom_percent', name: 'Zoom position as percent (0=wide, 100=tele)' },
 		{ variableId: 'focus_position', name: 'Focus position (0-65535)' },
 		{ variableId: 'pan_position', name: 'Pan position (raw VISCA units)' },
 		{ variableId: 'tilt_position', name: 'Tilt position (raw VISCA units)' },
