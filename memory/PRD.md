@@ -66,6 +66,19 @@
 - Mock camera + CLI tester for offline validation
 - Web companion: catalog browser, packet inspector, connection-wizard, CLI snippets
 
+## What's implemented (2026-02-XX — v1.11.0)
+- **New `exposure_compensation` variable** (integer -7..+7, 0 = neutral). Poll reads via new
+  `inqExpComp` (`81 09 04 4E FF`) and maps raw 0..14 → display raw−7. All `expcomp_*` and
+  variant-routed `gain_*` actions maintain a local tracker so the variable updates instantly
+  regardless of camera poll reply. New `expcomp_direct` action takes -7..+7 (sends raw+7 on wire).
+- **New `iris_fstop` variable** (string). Lookup table `C.IRIS_FSTOP` (14 entries) matches the
+  Tenveo VHD20 web UI: `0=Off, 1=f32.0, 2=f16.0, 3=f10.0, 4=f8.0, 5=f6.0, 6=f4.0, 7=f3.4, 8=f3.0,
+  9=f2.63, 10=f2.2, 11=f2.0, 12=f1.85, 13=f1.6`. Iris actions publish both raw `iris` and
+  `iris_fstop` label atomically.
+- **HELP.md updated** with troubleshooting note explaining focus/expcomp/iris variable behaviour
+  on NDI (firmware silently drops those inquiries — variables driven by local tracker only).
+- Tests: 43 new + 160 regression = 203 assertions across 8 suites, all pass.
+
 ## What's implemented (2026-02-XX — v1.10.0)
 - **Fixed focus + zoom rotary STEP variables that stayed at 0.** Root cause was two-fold:
   (a) both `zoomDriveStep` and `focusDriveStep` only published variables when the auto-stop
