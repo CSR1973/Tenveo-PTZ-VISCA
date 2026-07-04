@@ -66,6 +66,21 @@
 - Mock camera + CLI tester for offline validation
 - Web companion: catalog browser, packet inspector, connection-wizard, CLI snippets
 
+## What's implemented (2026-02-XX — v1.11.1)
+- **Fixed "new variables never appear + module shows 'dev'"** — `companion/manifest.json.version`
+  had been stuck at `1.3.2` across every previous package.json bump. Companion keys its module
+  cache on `manifest.version`; when the version doesn't change between installs, Companion skips
+  re-registering variables/actions/feedbacks, so newly added ones (`exposure_compensation`,
+  `iris_fstop`, `focus_percent`, `zoom_percent`, `backlight`) silently never appeared in the UI.
+- **Fix:** bumped manifest.json to 1.11.1, added `npm run sync-manifest` script that copies
+  package.version → manifest.version, wired `npm run build` to run sync-manifest automatically
+  before packaging. Fixed `npm run dev` script to pass the `--dev` flag correctly. Added an
+  `npm test` aggregator that runs all 7 suites.
+- **New regression guard:** `test/manifest-sync.test.js` — 21 assertions that fail-fast if
+  package.json and manifest.json ever diverge again, and verifies the built tarball contains
+  the expected manifest + variable string literals.
+- Tests: 224 total across 7 suites, all pass.
+
 ## What's implemented (2026-02-XX — v1.11.0)
 - **New `exposure_compensation` variable** (integer -7..+7, 0 = neutral). Poll reads via new
   `inqExpComp` (`81 09 04 4E FF`) and maps raw 0..14 → display raw−7. All `expcomp_*` and
