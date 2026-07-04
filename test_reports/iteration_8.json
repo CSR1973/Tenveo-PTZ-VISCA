@@ -1,0 +1,49 @@
+{
+  "summary": "v1.11.1 manifest-sync regression testing — verified fix for stale companion/manifest.json version that prevented Companion from refreshing variable/action/feedback definitions across module upgrades. All 21 manifest-sync assertions pass, all 6 legacy test suites pass (203/203 assertions), tarball is correctly built with matching manifest, and sync-manifest npm script works as a tamper-proof regression guard.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": { "ui_bugs": [], "integration_issues": [], "design_issues": [] },
+  "test_report_links": [
+    "/app/companion-module-tenveo-ptz/test/manifest-sync.test.js",
+    "/app/companion-module-tenveo-ptz/test/step-calibration.test.js",
+    "/app/companion-module-tenveo-ptz/test/axis-home-and-zoom.test.js",
+    "/app/companion-module-tenveo-ptz/test/backlight-focus-home.test.js",
+    "/app/companion-module-tenveo-ptz/test/focus-tracking.test.js",
+    "/app/companion-module-tenveo-ptz/test/realtime-publish.test.js",
+    "/app/companion-module-tenveo-ptz/test/expcomp-iris.test.js"
+  ],
+  "test_results": {
+    "manifest-sync.test.js": "21/21 PASS (exit 0)",
+    "step-calibration.test.js": "26/26 PASS",
+    "axis-home-and-zoom.test.js": "32/32 PASS",
+    "backlight-focus-home.test.js": "40/40 PASS",
+    "focus-tracking.test.js": "40/40 PASS",
+    "realtime-publish.test.js": "22/22 PASS",
+    "expcomp-iris.test.js": "43/43 PASS",
+    "npm test (aggregate)": "exit 0",
+    "node --check src/actions.js, src/main.js, src/commands.js, src/variables.js, src/config.js": "ALL OK"
+  },
+  "independent_verifications": {
+    "package_vs_manifest_version": "both = 1.11.1 (MATCH)",
+    "no_stale_1_3_2_in_package": "confirmed",
+    "no_stale_1_3_2_in_manifest": "confirmed",
+    "tarball_extraction": "tenveo-ptz-1.11.1.tgz → pkg/companion/manifest.json.version = 1.11.1",
+    "tarball_bundled_main_js_literals": "all 5 required strings present (exposure_compensation, iris_fstop, focus_percent, zoom_percent, backlight) + bonus (pan_degrees, tilt_degrees)",
+    "sync_manifest_tamper_test": "manually set manifest.version to '9.9.9-tamper', ran `npm run sync-manifest`, verified restored to 1.11.1, then re-restored from backup",
+    "build_script_contains_sync-manifest": "confirmed — build = 'npm run sync-manifest && companion-module-build'",
+    "dev_script_passes_dev_flag": "confirmed — dev = 'companion-module-build --dev'",
+    "npm_availability": "npm 10.8.2 on PATH, node v20.20.2 — execSync works"
+  },
+  "action_items": [],
+  "critical_code_review_comments": [
+    "sync-manifest script is written as an inline `node -e` one-liner using JSON.parse/writeFileSync — works, but for readability/testability, consider extracting to `scripts/sync-manifest.mjs`. Not critical since manifest-sync.test.js already guards behavior.",
+    "The package.json inline script uses `require('fs')` inside `node -e` from an ESM package (\"type\": \"module\"). This currently works because `node -e` is evaluated in CJS mode by default, but is worth noting for future Node versions. Verified working on Node v20.20.2."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "100%", "frontend": "N/A (skipped per request)" },
+  "test_credentials": "N/A (Node module, no auth)",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "v1.11.1 fixes stale companion/manifest.json version — the root cause of new variables (exposure_compensation, iris_fstop, etc.) not appearing in Companion after module upgrade. `npm run sync-manifest` now runs automatically before every build and is regression-guarded by test/manifest-sync.test.js. Any future version bump should only touch package.json.version — the build script will handle manifest.version. If manifest.json version diverges from package.json.version in a future iteration, the CI test will fail.",
+  "rca_of_the_issue": "Root cause: Companion caches module definitions (variables/actions/feedbacks) keyed by manifest.version. When a user upgrades the .tgz but the manifest version string is unchanged, Companion skips re-registering definitions, so newly added variables never appear in the UI. The manifest.json had been stuck at '1.3.2' across 8 package.json bumps. Fix (v1.11.1): (1) manually bumped companion/manifest.json to 1.11.1, (2) added `npm run sync-manifest` that copies package.version → manifest.version, (3) wired `npm run build` to run sync-manifest before packaging, (4) fixed `npm run dev` to pass --dev flag. All independent checks confirmed by this test run."
+}

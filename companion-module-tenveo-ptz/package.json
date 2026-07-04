@@ -1,14 +1,16 @@
 {
 	"name": "companion-module-tenveo-ptz",
-	"version": "1.11.0",
+	"version": "1.11.1",
 	"main": "src/main.js",
 	"type": "module",
 	"description": "Bitfocus Companion module for Tenveo PTZ cameras (VISCA over IP)",
 	"scripts": {
-		"dev": "companion-module-build dev",
-		"build": "companion-module-build",
+		"dev": "companion-module-build --dev",
+		"sync-manifest": "node -e \"const fs=require('fs'); const p=JSON.parse(fs.readFileSync('./package.json','utf8')); const m=JSON.parse(fs.readFileSync('./companion/manifest.json','utf8')); m.version=p.version; fs.writeFileSync('./companion/manifest.json', JSON.stringify(m,null,'\\t')+'\\n'); console.log('manifest.json → '+p.version);\"",
+		"build": "npm run sync-manifest && companion-module-build",
 		"lint": "eslint .",
 		"format": "prettier -w .",
+		"test": "node test/step-calibration.test.js && node test/axis-home-and-zoom.test.js && node test/backlight-focus-home.test.js && node test/focus-tracking.test.js && node test/realtime-publish.test.js && node test/expcomp-iris.test.js",
 		"test:cli": "node test/cli.js",
 		"test:mock": "node test/mock-camera.js"
 	},
