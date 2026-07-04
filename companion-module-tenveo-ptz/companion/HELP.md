@@ -134,5 +134,7 @@ You can also assign any standard button action to an encoder press; rotation wil
 2. **Commands work but feedbacks don't update** — Some Tenveo models do not respond to inquiries. Disable polling.
 3. **Drifting position** — Lower the pan/tilt default speed; some servos overshoot on quick stops.
 4. **Preset recall too fast/slow** — Use the *Preset Recall Speed* action.
+5. **`$(instance:focus_position)` / `focus_percent` stays at 0 on NDI cameras** — Tenveo VHD20HAN (NDI firmware) silently drops `CAM_FocusPosInq` (`81 09 04 48 FF`), so the module can't read the real focus position from the camera. It falls back to an elapsed-time estimate that only updates while you actively drive focus with `Focus: Near/Far` or the rotary STEP actions. If the camera is in Auto Focus, the internal AF motor moves without notifying the module, so the tracker drifts. Workarounds: (a) switch to Manual Focus and drive with the module, (b) use `Focus: Reset tracker` to reseed the counter, (c) on non-NDI variants this variable populates from the poll automatically.
+6. **`$(instance:iris_fstop)` / `exposure_compensation` don't update** — Same firmware caveat: if polling is disabled or ignored, the variable only updates when you press the corresponding action button. Enable `Polling Interval` in the connection config for automatic updates on non-NDI cameras.
 
 See `README.md` in the module repository for development & contribution guidance.

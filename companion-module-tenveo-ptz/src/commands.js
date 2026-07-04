@@ -245,6 +245,26 @@ export const inqGain = () => [0x81, 0x09, 0x04, 0x4c, 0xff]
 export const inqIris = () => [0x81, 0x09, 0x04, 0x4b, 0xff]
 export const inqShutter = () => [0x81, 0x09, 0x04, 0x4a, 0xff]
 export const inqBLC = () => [0x81, 0x09, 0x04, 0x33, 0xff]
+export const inqExpComp = () => [0x81, 0x09, 0x04, 0x4e, 0xff]
+
+/** Iris raw index (0..13) → f-stop label for Tenveo VHD20 family.
+ *  0 = fully closed (Off), 13 = maximum aperture (f1.6). */
+export const IRIS_FSTOP = [
+	'Off',   // 0
+	'f32.0', // 1
+	'f16.0', // 2
+	'f10.0', // 3
+	'f8.0',  // 4
+	'f6.0',  // 5
+	'f4.0',  // 6
+	'f3.4',  // 7
+	'f3.0',  // 8
+	'f2.63', // 9
+	'f2.2',  // 10
+	'f2.0',  // 11
+	'f1.85', // 12
+	'f1.6',  // 13
+]
 
 /* Reply parsers */
 

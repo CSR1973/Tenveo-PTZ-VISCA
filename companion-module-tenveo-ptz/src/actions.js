@@ -198,6 +198,22 @@ function focusDriveStep(self, dir, speed, idleMs) {
 	}, idleMs)
 }
 
+/** Update iris + iris_fstop variables from state.iris (0..13). */
+function updateIrisVars(self) {
+	const v = Math.max(0, Math.min(13, +self.state.iris || 0))
+	const label = C.IRIS_FSTOP[v] || 'unknown'
+	self.state.iris = v
+	self.state.irisFstop = label
+	self.setVariableValues({ iris: v, iris_fstop: label })
+}
+
+/** Update exposure_compensation variable from state.expComp (-7..+7). */
+function updateExpCompVar(self) {
+	const v = Math.max(-7, Math.min(7, +self.state.expComp || 0))
+	self.state.expComp = v
+	self.setVariableValues({ exposure_compensation: v })
+}
+
 /** Best-effort refresh of state.panDeg / state.tiltDeg from the physical camera.
  *  Uses inqPtPos when a visca socket is available. Silently returns if the camera
  *  doesn't answer — tracker just stays at its previous estimate. */
@@ -854,16 +870,58 @@ export function getActions(self) {
 			],
 			callback: async ({ options }) => self.send(C.aeMode(+options.mode)),
 		},
-		iris_up: { name: 'Iris: Up', options: [], callback: async () => self.send(C.irisUp()) },
-		iris_down: { name: 'Iris: Down', options: [], callback: async () => self.send(C.irisDown()) },
-		iris_reset: { name: 'Iris: Reset', options: [], callback: async () => self.send(C.irisReset()) },
-		iris_direct: {
-			name: 'Iris: Direct Value (0-13)',
-			options: [{ type: 'number', id: 'v', label: 'Value', default: 7, min: 0, max: 13 }],
-			callback: async ({ options }) => self.send(C.irisDirect(+options.v)),
+		iris_up: {
+			name: 'Iris: Up (opens aperture, wider)',
+			options: [],
+			callback: async () => {
+				self.state.iris = Math.min(13, (+self.state.iris || 0) + 1)
+				updateIrisVars(self)
+				await self.send(C.irisUp())
+			},
 		},
-		iris_rotary_up:   { name: 'Rotary STEP: Iris Up',   options: [], callback: async () => self.send(C.irisUp()) },
-		iris_rotary_down: { name: 'Rotary STEP: Iris Down', options: [], callback: async () => self.send(C.irisDown()) },
+		iris_down: {
+			name: 'Iris: Down (closes aperture, narrower)',
+			options: [],
+			callback: async () => {
+				self.state.iris = Math.max(0, (+self.state.iris || 0) - 1)
+				updateIrisVars(self)
+				await self.send(C.irisDown())
+			},
+		},
+		iris_reset: {
+			name: 'Iris: Reset',
+			options: [],
+			callback: async () => {
+				await self.send(C.irisReset())
+			},
+		},
+		iris_direct: {
+			name: 'Iris: Direct Value (0=Off, 13=f1.6)',
+			options: [{ type: 'number', id: 'v', label: 'Value', default: 7, min: 0, max: 13 }],
+			callback: async ({ options }) => {
+				self.state.iris = Math.max(0, Math.min(13, +options.v))
+				updateIrisVars(self)
+				await self.send(C.irisDirect(+options.v))
+			},
+		},
+		iris_rotary_up: {
+			name: 'Rotary STEP: Iris Up',
+			options: [],
+			callback: async () => {
+				self.state.iris = Math.min(13, (+self.state.iris || 0) + 1)
+				updateIrisVars(self)
+				await self.send(C.irisUp())
+			},
+		},
+		iris_rotary_down: {
+			name: 'Rotary STEP: Iris Down',
+			options: [],
+			callback: async () => {
+				self.state.iris = Math.max(0, (+self.state.iris || 0) - 1)
+				updateIrisVars(self)
+				await self.send(C.irisDown())
+			},
+		},
 
 		shutter_up: { name: 'Shutter: Up', options: [], callback: async () => self.send(C.shutterUp()) },
 		shutter_down: { name: 'Shutter: Down', options: [], callback: async () => self.send(C.shutterDown()) },
@@ -876,9 +934,45 @@ export function getActions(self) {
 		shutter_rotary_up:   { name: 'Rotary STEP: Shutter Up',   options: [], callback: async () => self.send(C.shutterUp()) },
 		shutter_rotary_down: { name: 'Rotary STEP: Shutter Down', options: [], callback: async () => self.send(C.shutterDown()) },
 
-		gain_up: { name: 'Gain: Up (routes to ExpComp on NDI variant)', options: [], callback: async () => self.send(isNdi(self) ? C.expCompUp() : C.gainUp()) },
-		gain_down: { name: 'Gain: Down (routes to ExpComp on NDI variant)', options: [], callback: async () => self.send(isNdi(self) ? C.expCompDown() : C.gainDown()) },
-		gain_reset: { name: 'Gain: Reset (routes to ExpComp on NDI variant)', options: [], callback: async () => self.send(isNdi(self) ? C.expCompReset() : C.gainReset()) },
+		gain_up: {
+			name: 'Gain: Up (routes to ExpComp on NDI variant)',
+			options: [],
+			callback: async () => {
+				if (isNdi(self)) {
+					self.state.expComp = Math.min(7, (+self.state.expComp || 0) + 1)
+					updateExpCompVar(self)
+					await self.send(C.expCompUp())
+				} else {
+					await self.send(C.gainUp())
+				}
+			},
+		},
+		gain_down: {
+			name: 'Gain: Down (routes to ExpComp on NDI variant)',
+			options: [],
+			callback: async () => {
+				if (isNdi(self)) {
+					self.state.expComp = Math.max(-7, (+self.state.expComp || 0) - 1)
+					updateExpCompVar(self)
+					await self.send(C.expCompDown())
+				} else {
+					await self.send(C.gainDown())
+				}
+			},
+		},
+		gain_reset: {
+			name: 'Gain: Reset (routes to ExpComp on NDI variant)',
+			options: [],
+			callback: async () => {
+				if (isNdi(self)) {
+					self.state.expComp = 0
+					updateExpCompVar(self)
+					await self.send(C.expCompReset())
+				} else {
+					await self.send(C.gainReset())
+				}
+			},
+		},
 		gain_direct: {
 			name: 'Gain: Direct Value (0-14) — Standard variant only',
 			options: [{ type: 'number', id: 'v', label: 'Value', default: 4, min: 0, max: 14 }],
@@ -889,8 +983,32 @@ export function getActions(self) {
 			options: [{ type: 'number', id: 'v', label: 'Limit (4-15)', default: 9, min: 4, max: 15 }],
 			callback: async ({ options }) => self.send(C.gainLimit(+options.v)),
 		},
-		gain_rotary_up:   { name: 'Rotary STEP: Gain Up (auto-routes to ExpComp on NDI)',   options: [], callback: async () => self.send(isNdi(self) ? C.expCompUp() : C.gainUp()) },
-		gain_rotary_down: { name: 'Rotary STEP: Gain Down (auto-routes to ExpComp on NDI)', options: [], callback: async () => self.send(isNdi(self) ? C.expCompDown() : C.gainDown()) },
+		gain_rotary_up: {
+			name: 'Rotary STEP: Gain Up (auto-routes to ExpComp on NDI)',
+			options: [],
+			callback: async () => {
+				if (isNdi(self)) {
+					self.state.expComp = Math.min(7, (+self.state.expComp || 0) + 1)
+					updateExpCompVar(self)
+					await self.send(C.expCompUp())
+				} else {
+					await self.send(C.gainUp())
+				}
+			},
+		},
+		gain_rotary_down: {
+			name: 'Rotary STEP: Gain Down (auto-routes to ExpComp on NDI)',
+			options: [],
+			callback: async () => {
+				if (isNdi(self)) {
+					self.state.expComp = Math.max(-7, (+self.state.expComp || 0) - 1)
+					updateExpCompVar(self)
+					await self.send(C.expCompDown())
+				} else {
+					await self.send(C.gainDown())
+				}
+			},
+		},
 
 		bright_up: { name: 'Bright: Up', options: [], callback: async () => self.send(C.brightUp()) },
 		bright_down: { name: 'Bright: Down', options: [], callback: async () => self.send(C.brightDown()) },
@@ -901,11 +1019,62 @@ export function getActions(self) {
 		},
 		expcomp_on: { name: 'ExpComp: On', options: [], callback: async () => self.send(C.expCompOn()) },
 		expcomp_off: { name: 'ExpComp: Off', options: [], callback: async () => self.send(C.expCompOff()) },
-		expcomp_up: { name: 'ExpComp: Up', options: [], callback: async () => self.send(C.expCompUp()) },
-		expcomp_down: { name: 'ExpComp: Down', options: [], callback: async () => self.send(C.expCompDown()) },
-		expcomp_reset: { name: 'ExpComp: Reset', options: [], callback: async () => self.send(C.expCompReset()) },
-		expcomp_rotary_up:   { name: 'Rotary STEP: ExpComp Up',   options: [], callback: async () => self.send(C.expCompUp()) },
-		expcomp_rotary_down: { name: 'Rotary STEP: ExpComp Down', options: [], callback: async () => self.send(C.expCompDown()) },
+		expcomp_up: {
+			name: 'ExpComp: Up',
+			options: [],
+			callback: async () => {
+				self.state.expComp = Math.min(7, (+self.state.expComp || 0) + 1)
+				updateExpCompVar(self)
+				await self.send(C.expCompUp())
+			},
+		},
+		expcomp_down: {
+			name: 'ExpComp: Down',
+			options: [],
+			callback: async () => {
+				self.state.expComp = Math.max(-7, (+self.state.expComp || 0) - 1)
+				updateExpCompVar(self)
+				await self.send(C.expCompDown())
+			},
+		},
+		expcomp_reset: {
+			name: 'ExpComp: Reset (to 0)',
+			options: [],
+			callback: async () => {
+				self.state.expComp = 0
+				updateExpCompVar(self)
+				await self.send(C.expCompReset())
+			},
+		},
+		expcomp_direct: {
+			name: 'ExpComp: Direct Value (-7 to +7)',
+			options: [{ type: 'number', id: 'v', label: 'Value', default: 0, min: -7, max: 7 }],
+			callback: async ({ options }) => {
+				const v = Math.max(-7, Math.min(7, +options.v))
+				self.state.expComp = v
+				updateExpCompVar(self)
+				// Camera stores raw 0..14 with 7 = neutral; convert display value → raw
+				await self.send(C.expCompDirect(v + 7))
+			},
+		},
+		expcomp_rotary_up: {
+			name: 'Rotary STEP: ExpComp Up',
+			options: [],
+			callback: async () => {
+				self.state.expComp = Math.min(7, (+self.state.expComp || 0) + 1)
+				updateExpCompVar(self)
+				await self.send(C.expCompUp())
+			},
+		},
+		expcomp_rotary_down: {
+			name: 'Rotary STEP: ExpComp Down',
+			options: [],
+			callback: async () => {
+				self.state.expComp = Math.max(-7, (+self.state.expComp || 0) - 1)
+				updateExpCompVar(self)
+				await self.send(C.expCompDown())
+			},
+		},
 		blc_on: {
 			name: 'Backlight: On',
 			options: [],

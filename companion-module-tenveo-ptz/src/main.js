@@ -41,7 +41,9 @@ class TenveoInstance extends InstanceBase {
 			lastPreset: null,
 			gain: null,
 			iris: null,
+			irisFstop: 'unknown',
 			shutter: null,
+			expComp: 0,
 			zoomPos: 0,
 			focusPos: 0,
 			blc: 'unknown',
@@ -100,6 +102,8 @@ class TenveoInstance extends InstanceBase {
 			focus_position: this.state?.focusPos ?? 0,
 			focus_percent: Math.round(((this.state?.focusPos ?? 0) / 16384) * 100),
 			backlight: this.state?.blc ?? 'unknown',
+			iris_fstop: this.state?.irisFstop ?? 'unknown',
+			exposure_compensation: this.state?.expComp ?? 0,
 			color_temp: this.state?.colorTemp ?? 5600,
 			warmth: 0,
 		})
@@ -213,6 +217,7 @@ class TenveoInstance extends InstanceBase {
 				{ q: C.inqShutter(), set: (r) => this._setShutter(r) },
 				{ q: C.inqPtPos(), set: (r) => this._setPtPos(r) },
 				{ q: C.inqBLC(), set: (r) => this._setBLC(r) },
+				{ q: C.inqExpComp(), set: (r) => this._setExpComp(r) },
 			]
 			for (const { q, set } of queries) {
 				const r = await this.visca.inquiry(q)
@@ -319,7 +324,20 @@ class TenveoInstance extends InstanceBase {
 		if (!data || data.length < 4) return
 		const v = C.denibble16(data)
 		this.state.iris = v
-		this.setVariableValues({ iris: v })
+		// Guard the lookup — some cameras return values > 13 for edge/error states
+		const idx = Math.max(0, Math.min(C.IRIS_FSTOP.length - 1, v))
+		const fstop = C.IRIS_FSTOP[idx]
+		this.state.irisFstop = fstop
+		this.setVariableValues({ iris: v, iris_fstop: fstop })
+	}
+	_setExpComp(buf) {
+		const data = C.parseInqReply(buf)
+		if (!data || data.length < 4) return
+		// Raw value 0..14, where 7 = neutral 0
+		const raw = C.denibble16(data)
+		const v = Math.max(-7, Math.min(7, raw - 7))
+		this.state.expComp = v
+		this.setVariableValues({ exposure_compensation: v })
 	}
 	_setShutter(buf) {
 		const data = C.parseInqReply(buf)

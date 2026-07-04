@@ -1,0 +1,39 @@
+{
+  "summary": "v1.11.0 backend testing complete. All primary + regression Node ESM test suites passed. Syntax checks clean. Independent verification of VISCA bytes, IRIS_FSTOP lookup, expCompDirect encoding, and variables.js registrations all pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/companion-module-tenveo-ptz/test/expcomp-iris.test.js",
+    "/app/companion-module-tenveo-ptz/test/realtime-publish.test.js",
+    "/app/companion-module-tenveo-ptz/test/focus-tracking.test.js",
+    "/app/companion-module-tenveo-ptz/test/backlight-focus-home.test.js",
+    "/app/companion-module-tenveo-ptz/test/axis-home-and-zoom.test.js",
+    "/app/companion-module-tenveo-ptz/test/step-calibration.test.js",
+    "/app/companion-module-tenveo-ptz/test/independent-verify.test.js",
+    "/app/companion-module-tenveo-ptz/test/independent-axis-home.test.js"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "commands.js, actions.js, main.js, variables.js all pass `node --check` cleanly.",
+    "IRIS_FSTOP is a plain frozen-style array export; all 14 indices match user spec exactly.",
+    "expCompDirect encoding is correct: display value 3 -> raw 10 -> byte 7 (payload low nibble) = 0x0A. High/low nibble split handled properly.",
+    "NDI variant routing in gain_up/down/reset/rotary_* correctly redirects to state.expComp and publishes exposure_compensation; standard variant untouched. Verified by test 9 + 11.",
+    "Clamps at +/-7 for expComp and 0..13 for iris are enforced synchronously in the action callbacks — no drift observed.",
+    "iris_up/down/direct now publishes both `iris` (raw index) and `iris_fstop` (label) atomically; prior test suites already updated to expect both, no regression."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "N/A (skipped per request)"},
+  "test_credentials": "N/A",
+  "seed_data_creation": "None. Tests use in-process mocks (mock-camera.js + mock ModuleInstance).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "v1.11.0 fully green. Test totals: expcomp-iris 43/43, realtime-publish 22/22, focus-tracking 40/40, backlight-focus-home 40/40, axis-home-and-zoom 32/32, step-calibration 26/26, independent-verify all-scenarios pass, independent-axis-home 41/0. Independent v1.11 spot-check script confirms inqExpComp bytes [0x81,0x09,0x04,0x4E,0xFF], IRIS_FSTOP[14] indices, expCompDirect(10) byte 7=0x0A, expCompUp=81 01 04 0E 02 FF, and both new variable IDs registered. Note: variables.js exports `getVariables()` (not getVariableDefinitions) — remember this if writing new spot-check scripts.",
+  "rca of the issue": "N/A — no bugs found."
+}
