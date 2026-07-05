@@ -66,6 +66,23 @@
 - Mock camera + CLI tester for offline validation
 - Web companion: catalog browser, packet inspector, connection-wizard, CLI snippets
 
+## What's implemented (2026-02-XX — v1.13.0)
+- **Fixed "AF doesn't sync focus_position to real value"** — added `refreshFocusFromCamera(self)`
+  helper that issues `inqFocusPos` after a delay to catch the settled position. Wired into
+  `focus_auto` (1.2 s delay for AF convergence), `focus_manual` (0.4 s), `focus_toggle` (1.2 s),
+  and `focus_one_push` (2 s for one-push). On non-NDI cameras this updates the tracker to the
+  camera's true focal distance. On NDI, the inquiry is silently dropped, so the tracker keeps
+  its last value (documented limitation).
+- **New `focus_mode` variable** — string label (`Auto` / `Manual` / `One-Push` / `unknown`).
+  Publishes on every focus-mode action and via the periodic AF poll.
+- **New `ae_mode_toggle` action** — 'Exposure: Toggle Auto ↔ Manual (AE mode)'. Flips
+  `CAM_AE Mode` between `FULL_AUTO` (0x00) and `MANUAL` (0x03) via VISCA `81 01 04 39 xx FF`.
+  This is the proper "Auto/Manual Exposure" switch most users mean (as opposed to the
+  ExpComp compensation-enable toggle which is a different feature — both exist as separate
+  actions now).
+- Existing `exposure_mode` action now publishes the label variable and triggers feedback.
+- Tests: 9 suites, 286 assertions total, all pass.
+
 ## What's implemented (2026-02-XX — v1.12.0)
 - **Fixed focus/zoom rotary variables that stayed at 0.** Root cause: `focus_rotary_near/far`
   and `zoom_rotary_in/out` used the old `pulse()` helper that fires drive + auto-stop but never
