@@ -379,12 +379,14 @@ runEntrypoint(TenveoInstance, [
 			gain_down_ndi: 'gain_down',
 			gain_reset_ndi: 'gain_reset',
 		}
-		const updatedActions = {}
-		for (const [id, action] of Object.entries(props.actions || {})) {
+		const updatedActions = []
+		const actionsList = Array.isArray(props.actions) ? props.actions : []
+		for (const action of actionsList) {
 			if (action && rename[action.actionId]) {
-				updatedActions[id] = { ...action, actionId: rename[action.actionId] }
+				action.actionId = rename[action.actionId]
+				updatedActions.push(action)
 			}
 		}
-		return { updatedConfig: null, updatedActions, updatedFeedbacks: {} }
+		return { updatedConfig: null, updatedActions, updatedFeedbacks: [] }
 	},
 ])
