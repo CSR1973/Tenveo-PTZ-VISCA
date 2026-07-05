@@ -44,6 +44,11 @@ All rotary actions accept an **Amount Multiplier** so you can tune sensitivity p
 - **Preset Recall Speed** (0–24) — sets the global recall speed
 - **Recall Preset (variable)** — accepts a Companion variable so a single button can recall a chosen preset
 
+**Rotary preset browsing (Stream Deck + / XL+)** — v1.15.0
+- **Preset SAVE rotary** — bind rotate CW / CCW to `Preset SAVE rotary: Scroll →/← next/previous index`, and bind push to `Preset SAVE rotary: PUSH → save preset at current index`. Show `$(tenveo:preset_save_index)` on the button so you always see which slot you're pointing at. `Preset SAVE rotary: Jump index directly` is a helper if you want a "reset to 1" button.
+- **Preset RECALL rotary** — same pattern with `Preset RECALL rotary: Scroll →/←` on rotate and `PUSH → recall preset at current index` on push. Show `$(tenveo:preset_recall_index)` on the button.
+- Both rotaries have configurable `min` / `max` / `step per click` options so you can constrain the wheel to e.g. presets 1–10 with wrap-around, or step by 5 for coarse scrolling.
+
 ### Focus
 - **Auto Focus On / Off / Toggle**
 - **Focus Near / Far / Stop** (manual)
@@ -142,6 +147,9 @@ You can also assign any standard button action to an encoder press; rotation wil
 
 ## Changelog
 
+- **1.15.0** — Rotary preset browsing (SAVE + RECALL rotaries with wrap-around index + PUSH-to-commit). Zoom rotary default idle raised to 800 ms for smoother slow-spin drives.
+- **1.14.2** — Renamed misleading ExpComp action labels (`expcomp_toggle` no longer confusable with AE-mode toggle).
+- **1.14.1** — Fixed upgrade-script return shape (was crashing all connections to red).
 - **1.14.0** — Safe callback wrapper (no more Yellow Triangle from runtime errors; errors log to the Companion Log). Auto-migration of legacy ExpComp/Gain action IDs from earlier module versions.
 - **1.13.0** — AE Mode toggle (Auto ↔ Manual), Focus polling on `focus_auto`/`focus_manual`.
 - **1.12.0** — ExpComp AE Mode variables + feedback, rotary Focus tracking refactor.

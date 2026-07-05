@@ -9,7 +9,7 @@
  *   6. _setPtPos (main.js reply handler) computes panDeg/tiltDeg from the raw camera reply.
  *   7. inqBLC command bytes are exactly 81 09 04 33 FF.
  *   8. _setBLC parses 02→'on' and 03→'off'.
- *   9. Zoom step idleMs default is 250 ms (bumped from 120 to reduce slow-spin jitter).
+ *   9. Zoom step idleMs default is 800 ms (raised in v1.15.0 for slow-spin smoothness).
  *  10. Backlight feedback is registered with id 'backlight_state'.
  */
 import { getActions } from '../src/actions.js'
@@ -225,13 +225,13 @@ async function test8_inqBLCBytes() {
 }
 
 async function test9_zoomIdleMsDefault250() {
-	console.log('\n[TEST 9] zoom_step_in/out default idleMs = 250 ms')
+	console.log('\n[TEST 9] zoom_step_in/out default idleMs = 800 ms')
 	const self = makeFakeSelf()
 	const acts = getActions(self)
 	const inIdle = acts.zoom_step_in.options.find((o) => o.id === 'idleMs')
 	const outIdle = acts.zoom_step_out.options.find((o) => o.id === 'idleMs')
-	assert('zoom_step_in idleMs default = 250', inIdle && inIdle.default === 250, `got ${inIdle?.default}`)
-	assert('zoom_step_out idleMs default = 250', outIdle && outIdle.default === 250, `got ${outIdle?.default}`)
+	assert('zoom_step_in idleMs default = 800', inIdle && inIdle.default === 800, `got ${inIdle?.default}`)
+	assert('zoom_step_out idleMs default = 800', outIdle && outIdle.default === 800, `got ${outIdle?.default}`)
 }
 
 async function test10_backlightFeedbackRegistered() {

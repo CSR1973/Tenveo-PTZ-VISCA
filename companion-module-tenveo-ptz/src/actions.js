@@ -665,7 +665,7 @@ export function getActions(self) {
 			name: 'Rotary HOLD: Zoom In (tracked)',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Speed', default: self.config.zoomSpeed || 4, choices: ZOOM_SPEEDS },
-				{ type: 'number', id: 'holdMs', label: 'Idle before auto-stop (ms)', default: 200, min: 50, max: 2000 },
+				{ type: 'number', id: 'holdMs', label: 'Idle before auto-stop (ms)', default: 800, min: 100, max: 2000 },
 			],
 			callback: async ({ options }) => {
 				zoomDriveStep(self, 'tele', +options.speed, +options.holdMs)
@@ -675,7 +675,7 @@ export function getActions(self) {
 			name: 'Rotary HOLD: Zoom Out (tracked)',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Speed', default: self.config.zoomSpeed || 4, choices: ZOOM_SPEEDS },
-				{ type: 'number', id: 'holdMs', label: 'Idle before auto-stop (ms)', default: 200, min: 50, max: 2000 },
+				{ type: 'number', id: 'holdMs', label: 'Idle before auto-stop (ms)', default: 800, min: 100, max: 2000 },
 			],
 			callback: async ({ options }) => {
 				zoomDriveStep(self, 'wide', +options.speed, +options.holdMs)
@@ -685,7 +685,7 @@ export function getActions(self) {
 			name: 'Rotary STEP: Zoom In (Tele) — variable-speed drive + auto-stop',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Zoom speed', default: self.config.zoomSpeed || 4, choices: ZOOM_SPEEDS },
-				{ type: 'number', id: 'idleMs', label: 'Idle time before auto-stop (ms)', default: 250, min: 40, max: 500 },
+				{ type: 'number', id: 'idleMs', label: 'Idle time before auto-stop (ms)', default: 800, min: 100, max: 2000 },
 			],
 			callback: async ({ options }) => {
 				zoomDriveStep(self, 'tele', +options.speed, +options.idleMs)
@@ -695,7 +695,7 @@ export function getActions(self) {
 			name: 'Rotary STEP: Zoom Out (Wide) — variable-speed drive + auto-stop',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Zoom speed', default: self.config.zoomSpeed || 4, choices: ZOOM_SPEEDS },
-				{ type: 'number', id: 'idleMs', label: 'Idle time before auto-stop (ms)', default: 250, min: 40, max: 500 },
+				{ type: 'number', id: 'idleMs', label: 'Idle time before auto-stop (ms)', default: 800, min: 100, max: 2000 },
 			],
 			callback: async ({ options }) => {
 				zoomDriveStep(self, 'wide', +options.speed, +options.idleMs)
@@ -925,6 +925,140 @@ export function getActions(self) {
 				} else {
 					await self.send(C.presetReset(n))
 				}
+			},
+		},
+
+		/* ───────── Rotary preset browsing (v1.15.0) ─────────
+		 * Two rotaries — one for SAVE, one for RECALL.
+		 *   • Turn CW  → increments   preset_save_index / preset_recall_index (wraps at max→min)
+		 *   • Turn CCW → decrements                                        (wraps at min→max)
+		 *   • Push     → save   or   recall  the currently pointed preset.
+		 * The pointed index is a Companion variable so you can show it on the button face,
+		 * e.g. text  →  "Save\n$(tenveo:preset_save_index)"                */
+		preset_save_scroll_up: {
+			name: 'Preset SAVE rotary: Scroll → next index (no VISCA sent)',
+			options: [
+				{ type: 'number', id: 'min', label: 'Min preset', default: 1, min: 1, max: 255 },
+				{ type: 'number', id: 'max', label: 'Max preset', default: 10, min: 1, max: 255 },
+				{ type: 'number', id: 'step', label: 'Step per click', default: 1, min: 1, max: 20 },
+			],
+			callback: async ({ options }) => {
+				const min = Math.max(1, +options.min || 1)
+				const max = Math.min(255, Math.max(min, +options.max || 10))
+				const step = Math.max(1, +options.step || 1)
+				let cur = +self.state.presetSaveIdx || min
+				cur += step
+				if (cur > max) cur = min + ((cur - max - 1) % (max - min + 1))
+				self.state.presetSaveIdx = cur
+				self.setVariableValues({ preset_save_index: cur })
+			},
+		},
+		preset_save_scroll_down: {
+			name: 'Preset SAVE rotary: Scroll ← previous index (no VISCA sent)',
+			options: [
+				{ type: 'number', id: 'min', label: 'Min preset', default: 1, min: 1, max: 255 },
+				{ type: 'number', id: 'max', label: 'Max preset', default: 10, min: 1, max: 255 },
+				{ type: 'number', id: 'step', label: 'Step per click', default: 1, min: 1, max: 20 },
+			],
+			callback: async ({ options }) => {
+				const min = Math.max(1, +options.min || 1)
+				const max = Math.min(255, Math.max(min, +options.max || 10))
+				const step = Math.max(1, +options.step || 1)
+				let cur = +self.state.presetSaveIdx || min
+				cur -= step
+				if (cur < min) cur = max - ((min - cur - 1) % (max - min + 1))
+				self.state.presetSaveIdx = cur
+				self.setVariableValues({ preset_save_index: cur })
+			},
+		},
+		preset_save_confirm: {
+			name: 'Preset SAVE rotary: PUSH → save preset at current index',
+			options: [
+				{ type: 'textinput', id: 'name', label: 'Preset name (ONVIF only, "$INDEX" is replaced)', default: 'Preset $INDEX' },
+			],
+			callback: async ({ options }) => {
+				const n = +self.state.presetSaveIdx || 1
+				const label = String(options.name || '').replace(/\$INDEX/gi, String(n)) || `Preset ${n}`
+				if (isNdi(self)) {
+					await self.send(C.presetSet(n))
+				} else if (self.onvif) {
+					try { await self.onvif.setPreset(String(n), label) } catch (e) { self.log('error', `ONVIF SetPreset ${n}: ${e.message}`) }
+				} else {
+					await self.send(C.presetSet(n))
+				}
+				self.log('info', `Preset SAVE rotary → saved preset ${n} ("${label}")`)
+			},
+		},
+		preset_save_set_index: {
+			name: 'Preset SAVE rotary: Jump index directly',
+			options: [{ type: 'number', id: 'n', label: 'Set index to', default: 1, min: 1, max: 255 }],
+			callback: async ({ options }) => {
+				const n = Math.max(1, Math.min(255, +options.n || 1))
+				self.state.presetSaveIdx = n
+				self.setVariableValues({ preset_save_index: n })
+			},
+		},
+		preset_recall_scroll_up: {
+			name: 'Preset RECALL rotary: Scroll → next index (no VISCA sent)',
+			options: [
+				{ type: 'number', id: 'min', label: 'Min preset', default: 1, min: 1, max: 255 },
+				{ type: 'number', id: 'max', label: 'Max preset', default: 10, min: 1, max: 255 },
+				{ type: 'number', id: 'step', label: 'Step per click', default: 1, min: 1, max: 20 },
+			],
+			callback: async ({ options }) => {
+				const min = Math.max(1, +options.min || 1)
+				const max = Math.min(255, Math.max(min, +options.max || 10))
+				const step = Math.max(1, +options.step || 1)
+				let cur = +self.state.presetRecallIdx || min
+				cur += step
+				if (cur > max) cur = min + ((cur - max - 1) % (max - min + 1))
+				self.state.presetRecallIdx = cur
+				self.setVariableValues({ preset_recall_index: cur })
+			},
+		},
+		preset_recall_scroll_down: {
+			name: 'Preset RECALL rotary: Scroll ← previous index (no VISCA sent)',
+			options: [
+				{ type: 'number', id: 'min', label: 'Min preset', default: 1, min: 1, max: 255 },
+				{ type: 'number', id: 'max', label: 'Max preset', default: 10, min: 1, max: 255 },
+				{ type: 'number', id: 'step', label: 'Step per click', default: 1, min: 1, max: 20 },
+			],
+			callback: async ({ options }) => {
+				const min = Math.max(1, +options.min || 1)
+				const max = Math.min(255, Math.max(min, +options.max || 10))
+				const step = Math.max(1, +options.step || 1)
+				let cur = +self.state.presetRecallIdx || min
+				cur -= step
+				if (cur < min) cur = max - ((min - cur - 1) % (max - min + 1))
+				self.state.presetRecallIdx = cur
+				self.setVariableValues({ preset_recall_index: cur })
+			},
+		},
+		preset_recall_confirm: {
+			name: 'Preset RECALL rotary: PUSH → recall preset at current index',
+			options: [],
+			callback: async () => {
+				const n = +self.state.presetRecallIdx || 1
+				if (isNdi(self)) {
+					await self.send(C.presetRecall(n))
+				} else if (self.onvif) {
+					try { await self.onvif.gotoPreset(String(n)) } catch (e) { self.log('error', `ONVIF GotoPreset ${n}: ${e.message}`) }
+				} else {
+					await self.send(C.presetRecall(n))
+				}
+				self.state.lastPreset = n
+				self.setVariableValues({ last_preset: n })
+				self.checkFeedbacks('preset_recalled')
+				self.log('info', `Preset RECALL rotary → recalled preset ${n}`)
+			},
+		},
+		preset_recall_set_index: {
+			name: 'Preset RECALL rotary: Jump index directly',
+			options: [{ type: 'number', id: 'n', label: 'Set index to', default: 1, min: 1, max: 255 }],
+			callback: async ({ options }) => {
+				const n = Math.max(1, Math.min(255, +options.n || 1))
+				self.state.presetRecallIdx = n
+				self.setVariableValues({ preset_recall_index: n })
 			},
 		},
 

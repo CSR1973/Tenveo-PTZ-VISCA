@@ -27,5 +27,7 @@ export function getVariables() {
 		{ variableId: 'tilt_degrees', name: 'Tilt position in degrees (Home = 0°)' },
 		{ variableId: 'color_temp', name: 'Current color temperature (K)' },
 		{ variableId: 'warmth', name: 'Warmth offset (-64 cool ↔ +64 warm, 0 neutral)' },
+		{ variableId: 'preset_save_index', name: 'Save-rotary current preset index (turn to scroll, push to save)' },
+		{ variableId: 'preset_recall_index', name: 'Recall-rotary current preset index (turn to scroll, push to recall)' },
 	]
 }

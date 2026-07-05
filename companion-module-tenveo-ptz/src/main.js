@@ -53,6 +53,8 @@ class TenveoInstance extends InstanceBase {
 			panDeg: 0,
 			tiltDeg: 0,
 			colorTemp: 5600,
+			presetSaveIdx: 1,
+			presetRecallIdx: 1,
 		}
 		this._pulseTimers = {}
 
@@ -109,6 +111,8 @@ class TenveoInstance extends InstanceBase {
 			exposure_compensation_mode: this.state?.expCompMode ?? 'unknown',
 			color_temp: this.state?.colorTemp ?? 5600,
 			warmth: 0,
+			preset_save_index: this.state?.presetSaveIdx ?? 1,
+			preset_recall_index: this.state?.presetRecallIdx ?? 1,
 		})
 	}
 
