@@ -360,4 +360,31 @@ class TenveoInstance extends InstanceBase {
 	}
 }
 
-runEntrypoint(TenveoInstance, [])
+runEntrypoint(TenveoInstance, [
+	// v1.14.0 — migrate any legacy ExpComp action IDs to their current names.
+	// Companion persists the actionId inside each button; if the module was
+	// upgraded from an earlier build where an ID had a different name, the
+	// button would keep firing the OLD id (which no longer exists) and show
+	// a yellow triangle. This script rewrites the id in place.
+	function migrateExpCompActionIds(_context, props) {
+		const rename = {
+			expcomp_step_up: 'expcomp_up',
+			expcomp_step_down: 'expcomp_down',
+			expcomp_step_reset: 'expcomp_reset',
+			expcomp_mode_toggle: 'expcomp_toggle',
+			expcomp_ae_toggle: 'expcomp_toggle',
+			expcomp_manual: 'expcomp_on',
+			expcomp_auto: 'expcomp_off',
+			gain_up_ndi: 'gain_up',
+			gain_down_ndi: 'gain_down',
+			gain_reset_ndi: 'gain_reset',
+		}
+		const updatedActions = {}
+		for (const [id, action] of Object.entries(props.actions || {})) {
+			if (action && rename[action.actionId]) {
+				updatedActions[id] = { ...action, actionId: rename[action.actionId] }
+			}
+		}
+		return { updatedConfig: null, updatedActions, updatedFeedbacks: {} }
+	},
+])

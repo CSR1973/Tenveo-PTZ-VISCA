@@ -322,8 +322,33 @@ function finishDrive(self) {
 	}
 }
 
+/** Wrap every action callback so that a runtime throw is logged to the module
+ *  log instead of surfacing as a Bitfocus Companion "yellow triangle" on the
+ *  Stream Deck button. The user then still gets a clear, actionable error line
+ *  in the Companion Log tab instead of an opaque UI warning. */
+function wrapCallbacksSafely(actions, self) {
+	for (const [id, def] of Object.entries(actions)) {
+		if (!def || typeof def.callback !== 'function') continue
+		const original = def.callback
+		def.callback = async (event, context) => {
+			try {
+				return await original(event, context)
+			} catch (e) {
+				const msg = (e && e.message) || String(e)
+				const stack = (e && e.stack) || ''
+				try {
+					self.log('error', `Action "${id}" threw: ${msg}\n${stack}`)
+				} catch (_) {
+					/* logger unavailable — swallow */
+				}
+			}
+		}
+	}
+	return actions
+}
+
 export function getActions(self) {
-	return {
+	return wrapCallbacksSafely({
 		/* ───────── Pan / Tilt drive (hold style — tracks elapsed time for pan_degrees / tilt_degrees) ───────── */
 		pt_up: {
 			name: 'Pan/Tilt: Up (hold)',
@@ -1384,5 +1409,5 @@ export function getActions(self) {
 				return self.send(bytes)
 			},
 		},
-	}
+	}, self)
 }

@@ -136,5 +136,17 @@ You can also assign any standard button action to an encoder press; rotation wil
 4. **Preset recall too fast/slow** — Use the *Preset Recall Speed* action.
 5. **`$(instance:focus_position)` / `focus_percent` stays at 0 on NDI cameras** — Tenveo VHD20HAN (NDI firmware) silently drops `CAM_FocusPosInq` (`81 09 04 48 FF`), so the module can't read the real focus position from the camera. It falls back to an elapsed-time estimate that only updates while you actively drive focus with `Focus: Near/Far` or the rotary STEP actions. If the camera is in Auto Focus, the internal AF motor moves without notifying the module, so the tracker drifts. Workarounds: (a) switch to Manual Focus and drive with the module, (b) use `Focus: Reset tracker` to reseed the counter, (c) on non-NDI variants this variable populates from the poll automatically.
 6. **`$(instance:iris_fstop)` / `exposure_compensation` don't update** — Same firmware caveat: if polling is disabled or ignored, the variable only updates when you press the corresponding action button. Enable `Polling Interval` in the connection config for automatic updates on non-NDI cameras.
+7. **Yellow triangle on a Stream Deck button when pushed** — As of **v1.14.0** the module wraps every action callback in a safe try/catch that logs the real error to the Companion Log tab instead of surfacing as a yellow warning icon. If you still see a yellow triangle:
+   - Open Companion → **Log** tab and look for a line beginning `Action "…" threw: …` — that message is the actual root cause.
+   - v1.14.0 also ships an upgrade script that automatically migrates older ExpComp/Gain action IDs (e.g. `expcomp_step_up`, `gain_up_ndi`) to their current names, so existing buttons don't need to be recreated after an upgrade.
+
+## Changelog
+
+- **1.14.0** — Safe callback wrapper (no more Yellow Triangle from runtime errors; errors log to the Companion Log). Auto-migration of legacy ExpComp/Gain action IDs from earlier module versions.
+- **1.13.0** — AE Mode toggle (Auto ↔ Manual), Focus polling on `focus_auto`/`focus_manual`.
+- **1.12.0** — ExpComp AE Mode variables + feedback, rotary Focus tracking refactor.
+- **1.11.0** — Axis-independent Home (pan-only/tilt-only/zoom-only) + Backlight rename.
+- **1.10.0** — Pan/Tilt step calibration (108.74 units/deg) + rotary summed absolute positioning.
+
 
 See `README.md` in the module repository for development & contribution guidance.
