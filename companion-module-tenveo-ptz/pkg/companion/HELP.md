@@ -147,7 +147,8 @@ You can also assign any standard button action to an encoder press; rotation wil
 
 ## Changelog
 
-- **1.16.1** — Fixed OSD menu navigation. `menu_up`/`down`/`left`/`right` now use the standard VISCA CAM_Menu-Nav opcodes (`0x06 0x01 0x0E 0x0E ...`) instead of pan/tilt drive bytes. `menu_enter` now uses `0x06 06 05` (CAM_MenuReturn OK) instead of a vendor-specific 0x7E code, and `menu_back` uses `0x06 06 04` (was accidentally identical to `menu_off`). `menu_toggle` tracks the open/closed state locally and sends the reliable on/off bytes.
+- **1.17.0** — OSD Nav dispatcher: connection config now has an `OSD Menu Navigation style` dropdown so users can switch between CAM_Menu-Nav (Sony spec), pan/tilt drive at speeds 3 / 6 / 14, or a "broadcast" mode that fires all styles at once — until one of them works on their firmware revision.
+- **1.16.1** — Fixed OSD menu navigation opcodes (CAM_Menu-Nav, CAM_MenuReturn OK/Cancel, tracked toggle).
 - **1.16.0** — New `Rotary TICK: Zoom In/Out` — discrete per-click zoom with instant `zoom_percent` update.
 - **1.15.0** — Rotary preset browsing (SAVE + RECALL rotaries with wrap-around index + PUSH-to-commit). Zoom rotary default idle raised to 800 ms for smoother slow-spin drives.
 - **1.14.2** — Renamed misleading ExpComp action labels (`expcomp_toggle` no longer confusable with AE-mode toggle).

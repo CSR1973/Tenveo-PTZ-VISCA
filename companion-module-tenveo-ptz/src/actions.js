@@ -58,6 +58,45 @@ function toInt16(x) {
 	return v
 }
 
+/** Dispatch an OSD navigation click through the user's chosen `osdNavStyle`.
+ *  Tenveo firmware inconsistency means CAM_Menu-Nav bytes work on some units
+ *  and only pan/tilt drive works on others — this switch lets each user pick
+ *  the style their firmware speaks (or broadcast all styles at once). */
+function osdNav(self, dir) {
+	const style = self.config.osdNavStyle || 'cam_menu_nav'
+	const ptCmd = {
+		up: (s) => C.menuPtDriveUp(s),
+		down: (s) => C.menuPtDriveDown(s),
+		left: (s) => C.menuPtDriveLeft(s),
+		right: (s) => C.menuPtDriveRight(s),
+	}[dir]
+	const camMenuCmd = {
+		up: C.menuNavUp,
+		down: C.menuNavDown,
+		left: C.menuNavLeft,
+		right: C.menuNavRight,
+	}[dir]
+
+	if (style === 'cam_menu_nav') {
+		return self.send(camMenuCmd())
+	}
+	if (style === 'ptz_drive_slow') return self.send(ptCmd(3))
+	if (style === 'ptz_drive_med') return self.send(ptCmd(6))
+	if (style === 'ptz_drive_fast') return self.send(ptCmd(0x0e))
+	if (style === 'broadcast') {
+		// Fire CAM_Menu-Nav + pt-drive @ speeds 3, 6, 14. Whatever the firmware
+		// understands wins; the rest are ignored.
+		self.send(camMenuCmd()).catch(() => {})
+		self.send(ptCmd(3)).catch(() => {})
+		self.send(ptCmd(6)).catch(() => {})
+		self.send(ptCmd(0x0e)).catch(() => {})
+		// Send a pt-stop so any accidental physical motion halts after ~150ms.
+		setTimeout(() => self.send(C.menuPtStop()).catch(() => {}), 150)
+		return
+	}
+	return self.send(camMenuCmd())
+}
+
 /** Update zoom_position + zoom_percent variables from state.zoomPos (0..16384). */
 function updateZoomVars(self) {
 	const pos = Math.max(0, Math.min(16384, Math.round(self.state.zoomPos || 0)))
@@ -1138,10 +1177,10 @@ export function getActions(self) {
 				}
 			},
 		},
-		menu_up: { name: 'OSD: Navigate Up', options: [], callback: async () => self.send(C.menuNavUp()) },
-		menu_down: { name: 'OSD: Navigate Down', options: [], callback: async () => self.send(C.menuNavDown()) },
-		menu_left: { name: 'OSD: Navigate Left', options: [], callback: async () => self.send(C.menuNavLeft()) },
-		menu_right: { name: 'OSD: Navigate Right', options: [], callback: async () => self.send(C.menuNavRight()) },
+		menu_up: { name: 'OSD: Navigate Up', options: [], callback: async () => osdNav(self, 'up') },
+		menu_down: { name: 'OSD: Navigate Down', options: [], callback: async () => osdNav(self, 'down') },
+		menu_left: { name: 'OSD: Navigate Left', options: [], callback: async () => osdNav(self, 'left') },
+		menu_right: { name: 'OSD: Navigate Right', options: [], callback: async () => osdNav(self, 'right') },
 		menu_enter: { name: 'OSD: Enter', options: [], callback: async () => self.send(C.menuEnter()) },
 		menu_back: { name: 'OSD: Back', options: [], callback: async () => self.send(C.menuBack()) },
 		ir_on: { name: 'IR Remote: Enable', options: [], callback: async () => self.send(C.irOn()) },

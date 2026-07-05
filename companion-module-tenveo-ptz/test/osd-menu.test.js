@@ -69,7 +69,7 @@ async function test4_menuToggleStateFlipUsesOnOffBytes() {
 }
 
 async function test5_navigationActionsFire() {
-	console.log('\n[TEST 5] Nav actions actually send the new VISCA bytes')
+	console.log('\n[TEST 5] Nav actions dispatch through osdNavStyle (default = cam_menu_nav)')
 	const self = makeSelf()
 	const acts = getActions(self)
 	await acts.menu_up.callback()
@@ -82,12 +82,42 @@ async function test5_navigationActionsFire() {
 	assert('menu_back sent back bytes',    bytesEq(self.sent[3], C.menuBack()))
 }
 
+async function test6_ptzDriveStylesSendDifferentBytes() {
+	console.log('\n[TEST 6] osdNavStyle=ptz_drive_* switches to pan/tilt drive bytes at chosen speed')
+	for (const [style, speed] of [['ptz_drive_slow', 3], ['ptz_drive_med', 6], ['ptz_drive_fast', 0x0e]]) {
+		const self = makeSelf()
+		self.config.osdNavStyle = style
+		const acts = getActions(self)
+		await acts.menu_down.callback()
+		const b = self.sent[0]
+		assert(`${style}: bytes = ptDrive DOWN @ speed ${speed}`,
+			b && b[0] === 0x81 && b[1] === 0x01 && b[2] === 0x06 && b[3] === 0x01 && b[4] === speed && b[5] === speed && b[6] === 0x03 && b[7] === 0x02,
+			JSON.stringify(b))
+	}
+}
+
+async function test7_broadcastFiresAllStyles() {
+	console.log('\n[TEST 7] osdNavStyle=broadcast fires CAM_Menu-Nav + 3 pt-drive speeds')
+	const self = makeSelf()
+	self.config.osdNavStyle = 'broadcast'
+	const acts = getActions(self)
+	await acts.menu_up.callback()
+	// Wait for the delayed pt-stop after 150ms
+	await new Promise((r) => setTimeout(r, 220))
+	// Expect 4 fires + 1 stop = 5 total
+	assert('broadcast sent 5 commands (4 nav + 1 stop)', self.sent.length === 5, `got ${self.sent.length}`)
+	assert('first cmd = CAM_Menu-Nav up', bytesEq(self.sent[0], C.menuNavUp()))
+	assert('last cmd = ptStop', bytesEq(self.sent[4], C.menuPtStop()))
+}
+
 ;(async () => {
 	test1_navByteExactness()
 	test2_enterAndBackBytes()
 	test3_menuBackNoLongerEqualsMenuOff()
 	await test4_menuToggleStateFlipUsesOnOffBytes()
 	await test5_navigationActionsFire()
+	await test6_ptzDriveStylesSendDifferentBytes()
+	await test7_broadcastFiresAllStyles()
 
 	const failed = results.filter((r) => !r.ok)
 	const total = results.length

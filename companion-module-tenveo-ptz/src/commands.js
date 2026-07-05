@@ -123,6 +123,14 @@ export const menuNavRight = () => [0x81, 0x01, 0x06, 0x01, 0x0e, 0x0e, 0x02, 0x0
 /* Enter / Return use the CAM_MenuReturn group (0x06 0x06 0x05 / 0x04). */
 export const menuEnter = () => [0x81, 0x01, 0x06, 0x06, 0x05, 0xff]
 export const menuBack = () => [0x81, 0x01, 0x06, 0x06, 0x04, 0xff]
+/* Alt menu navigation via ptDrive with variable speed — some Tenveo firmware
+ * revs ignore the CAM_Menu-Nav bytes and only respond to pan/tilt drive while
+ * the menu is open. Speed is caller-configurable (typically 3, 6, or 14). */
+export const menuPtDriveUp = (speed = 6) => ptDrive(PT_DIR.UP, speed, speed)
+export const menuPtDriveDown = (speed = 6) => ptDrive(PT_DIR.DOWN, speed, speed)
+export const menuPtDriveLeft = (speed = 6) => ptDrive(PT_DIR.LEFT, speed, speed)
+export const menuPtDriveRight = (speed = 6) => ptDrive(PT_DIR.RIGHT, speed, speed)
+export const menuPtStop = () => ptDrive(PT_DIR.STOP, 1, 1)
 
 /* IR receive */
 

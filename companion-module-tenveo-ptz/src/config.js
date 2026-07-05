@@ -263,6 +263,20 @@ export function getConfigFields() {
 			max: 60000,
 		},
 		{
+			type: 'dropdown',
+			id: 'osdNavStyle',
+			label: 'OSD Menu Navigation style (change if menu nav buttons do not respond)',
+			width: 6,
+			default: 'cam_menu_nav',
+			choices: [
+				{ id: 'cam_menu_nav', label: 'CAM_Menu-Nav (Sony spec: 06 01 0E 0E …)' },
+				{ id: 'ptz_drive_slow', label: 'PTZ drive @ speed 3 (some Tenveo firmware)' },
+				{ id: 'ptz_drive_med', label: 'PTZ drive @ speed 6' },
+				{ id: 'ptz_drive_fast', label: 'PTZ drive @ speed 14 (0x0E)' },
+				{ id: 'broadcast', label: 'Broadcast: send CAM_Menu-Nav + PTZ drive (all styles)' },
+			],
+		},
+		{
 			type: 'checkbox',
 			id: 'verbose',
 			label: 'Verbose Logging',
