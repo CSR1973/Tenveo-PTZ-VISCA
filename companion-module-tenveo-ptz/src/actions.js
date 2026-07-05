@@ -214,6 +214,25 @@ function updateExpCompVar(self) {
 	self.setVariableValues({ exposure_compensation: v })
 }
 
+/** Best-effort refresh of state.focusPos from the physical camera via inqFocusPos.
+ *  Works on non-NDI variants; NDI firmware silently drops the inquiry — in that case we
+ *  leave the tracker at its last value (setVariableValues is only invoked on success). */
+async function refreshFocusFromCamera(self) {
+	if (!self.visca || typeof self.visca.inquiry !== 'function') return
+	try {
+		const r = await self.visca.inquiry(C.inqFocusPos())
+		if (!r || !r.payload) return
+		const data = C.parseInqReply(r.payload)
+		if (!data || data.length < 4) return
+		const v = C.denibble16(data.slice(0, 4))
+		if (typeof v !== 'number' || Number.isNaN(v)) return
+		self.state.focusPos = Math.max(0, Math.min(16384, v))
+		updateFocusVars(self)
+	} catch {
+		// swallow — tracker stays as-is
+	}
+}
+
 /** Best-effort refresh of state.panDeg / state.tiltDeg from the physical camera.
  *  Uses inqPtPos when a visca socket is available. Silently returns if the camera
  *  doesn't answer — tracker just stays at its previous estimate. */
@@ -659,10 +678,56 @@ export function getActions(self) {
 		},
 
 		/* ───────── Focus ───────── */
-		focus_auto: { name: 'Focus: Auto On', options: [], callback: async () => self.send(C.focusAuto()) },
-		focus_manual: { name: 'Focus: Manual', options: [], callback: async () => self.send(C.focusManual()) },
-		focus_toggle: { name: 'Focus: Auto Toggle', options: [], callback: async () => self.send(C.focusAutoToggle()) },
-		focus_one_push: { name: 'Focus: One-Push AF', options: [], callback: async () => self.send(C.focusOnePush()) },
+		focus_auto: {
+			name: 'Focus: Auto On',
+			options: [],
+			callback: async () => {
+				await self.send(C.focusAuto())
+				self.state.af = 'on'
+				self.setVariableValues({ af: 'on', focus_mode: 'Auto' })
+				self.checkFeedbacks('af_state')
+				// Give AF a moment to converge, then re-sync focus_position from the camera.
+				// On non-NDI this updates the tracker to the real focal distance; on NDI the
+				// inquiry is silently dropped, so we clear the tracker so users see it's stale.
+				setTimeout(() => refreshFocusFromCamera(self), 1200)
+			},
+		},
+		focus_manual: {
+			name: 'Focus: Manual',
+			options: [],
+			callback: async () => {
+				await self.send(C.focusManual())
+				self.state.af = 'off'
+				self.setVariableValues({ af: 'off', focus_mode: 'Manual' })
+				self.checkFeedbacks('af_state')
+				setTimeout(() => refreshFocusFromCamera(self), 400)
+			},
+		},
+		focus_toggle: {
+			name: 'Focus: Auto Toggle',
+			options: [],
+			callback: async () => {
+				await self.send(C.focusAutoToggle())
+				const next = self.state.af === 'on' ? 'off' : 'on'
+				self.state.af = next
+				self.setVariableValues({ af: next, focus_mode: next === 'on' ? 'Auto' : 'Manual' })
+				self.checkFeedbacks('af_state')
+				setTimeout(() => refreshFocusFromCamera(self), 1200)
+			},
+		},
+		focus_one_push: {
+			name: 'Focus: One-Push AF (auto-focus once)',
+			options: [],
+			callback: async () => {
+				await self.send(C.focusOnePush())
+				self.setVariableValues({ focus_mode: 'One-Push' })
+				// One-push typically takes 1-2 seconds to complete
+				setTimeout(async () => {
+					await refreshFocusFromCamera(self)
+					self.setVariableValues({ focus_mode: self.state.af === 'on' ? 'Auto' : 'Manual' })
+				}, 2000)
+			},
+		},
 		focus_near: {
 			name: 'Focus: Near',
 			options: [{ type: 'dropdown', id: 'speed', label: 'Speed', default: 4, choices: ZOOM_SPEEDS }],
@@ -876,7 +941,30 @@ export function getActions(self) {
 					],
 				},
 			],
-			callback: async ({ options }) => self.send(C.aeMode(+options.mode)),
+			callback: async ({ options }) => {
+				const m = +options.mode
+				await self.send(C.aeMode(m))
+				self.state.aeMode = m
+				const label = m === C.AE_MODE.FULL_AUTO ? 'Full Auto' :
+					m === C.AE_MODE.MANUAL ? 'Manual' :
+					m === C.AE_MODE.SHUTTER_PRI ? 'Shutter Pri' :
+					m === C.AE_MODE.IRIS_PRI ? 'Iris Pri' :
+					m === C.AE_MODE.BRIGHT ? 'Bright' : `0x${m.toString(16)}`
+				self.setVariableValues({ exposure_mode: label })
+				self.checkFeedbacks('exposure_mode')
+			},
+		},
+		ae_mode_toggle: {
+			name: 'Exposure: Toggle Auto ↔ Manual (AE mode)',
+			options: [],
+			callback: async () => {
+				const isAuto = self.state.aeMode === C.AE_MODE.FULL_AUTO
+				const next = isAuto ? C.AE_MODE.MANUAL : C.AE_MODE.FULL_AUTO
+				await self.send(C.aeMode(next))
+				self.state.aeMode = next
+				self.setVariableValues({ exposure_mode: isAuto ? 'Manual' : 'Full Auto' })
+				self.checkFeedbacks('exposure_mode')
+			},
 		},
 		iris_up: {
 			name: 'Iris: Up (opens aperture, wider)',
@@ -1046,7 +1134,7 @@ export function getActions(self) {
 			},
 		},
 		expcomp_toggle: {
-			name: 'ExpComp: Toggle Auto ↔ Manual',
+			name: 'ExpComp: Toggle Auto ↔ Manual (compensation on/off)',
 			options: [],
 			callback: async () => {
 				const next = self.state.expCompMode === 'on' ? 'off' : 'on'

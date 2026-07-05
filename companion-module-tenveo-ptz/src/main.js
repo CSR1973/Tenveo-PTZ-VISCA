@@ -102,6 +102,7 @@ class TenveoInstance extends InstanceBase {
 			zoom_percent: Math.round(((this.state?.zoomPos ?? 0) / 16384) * 100),
 			focus_position: this.state?.focusPos ?? 0,
 			focus_percent: Math.round(((this.state?.focusPos ?? 0) / 16384) * 100),
+			focus_mode: this.state?.af === 'on' ? 'Auto' : this.state?.af === 'off' ? 'Manual' : 'unknown',
 			backlight: this.state?.blc ?? 'unknown',
 			iris_fstop: this.state?.irisFstop ?? 'unknown',
 			exposure_compensation: this.state?.expComp ?? 0,
@@ -244,7 +245,7 @@ class TenveoInstance extends InstanceBase {
 		if (!data) return
 		const v = data[0] === 0x02 ? 'on' : 'off'
 		this.state.af = v
-		this.setVariableValues({ af: v })
+		this.setVariableValues({ af: v, focus_mode: v === 'on' ? 'Auto' : 'Manual' })
 		this.checkFeedbacks('af_state')
 	}
 	_setAeMode(buf) {

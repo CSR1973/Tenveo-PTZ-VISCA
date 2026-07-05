@@ -1,0 +1,44 @@
+{
+  "summary": "v1.13.0 backend testing complete. Focus AF sync + AE mode Auto/Manual toggle features verified. All 9 test suites pass with 286 total assertions. New focus-af-sync-ae-toggle.test.js (33 assertions) passes exit 0. Syntax check on src/actions.js, src/main.js, src/variables.js — all OK.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/companion-module-tenveo-ptz/test/focus-af-sync-ae-toggle.test.js",
+    "/app/companion-module-tenveo-ptz/test/step-calibration.test.js",
+    "/app/companion-module-tenveo-ptz/test/axis-home-and-zoom.test.js",
+    "/app/companion-module-tenveo-ptz/test/backlight-focus-home.test.js",
+    "/app/companion-module-tenveo-ptz/test/focus-tracking.test.js",
+    "/app/companion-module-tenveo-ptz/test/realtime-publish.test.js",
+    "/app/companion-module-tenveo-ptz/test/expcomp-iris.test.js",
+    "/app/companion-module-tenveo-ptz/test/manifest-sync.test.js",
+    "/app/companion-module-tenveo-ptz/test/rotary-track-expcomp-toggle.test.js"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "No blocking issues. The refreshFocusFromCamera helper correctly handles the null-visca case (Test 8 passed with no crash). setTimeout delays (1200ms/2000ms) are reasonable for real AF settling. The ae_mode_toggle action correctly distinguishes proper AE mode (VISCA 0x39) from expcomp_toggle (VISCA 0x3E) — good separation of concerns."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "n/a (backend only)"},
+  "test_credentials": "n/a",
+  "seed_data_creation": "n/a",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Full regression across 9 suites: step-calibration (26), axis-home-and-zoom (32), backlight-focus-home (40), focus-tracking (40), realtime-publish (22), expcomp-iris (43), manifest-sync (21), rotary-track-expcomp-toggle (29), focus-af-sync-ae-toggle (33) = 286 assertions total. All pass. v1.13.0 tarball at /app/companion-module-tenveo-ptz/tenveo-ptz-1.13.0.tgz.",
+  "detailed_test_verification": {
+    "focus_auto": "PASS — sends 81 01 04 38 02 FF, state.af='on', publishes af/focus_mode='Auto', triggers af_state feedback, after 1200ms syncs focusPos=9500 and publishes focus_position=9500, focus_percent=58",
+    "focus_manual": "PASS — sends 81 01 04 38 03 FF, state.af='off', focus_mode='Manual', focusPos synced to 2000 after ~500ms",
+    "focus_one_push": "PASS — publishes focus_mode='One-Push' immediately, ~2s later reverts to Manual (af=off) with focusPos=4000",
+    "focus_toggle": "PASS — flips state.af between on/off and publishes Auto/Manual accordingly",
+    "ae_mode_toggle": "PASS — action registered with label 'Exposure: Toggle Auto ↔ Manual (AE mode)', flips FULL_AUTO(0x00) ↔ MANUAL(0x03), sends 81 01 04 39 xx FF, publishes exposure_mode label, triggers exposure_mode feedback",
+    "focus_mode_variable": "PASS — registered in variables.js",
+    "focus_auto_no_visca": "PASS — no crash, state.af still updates to 'on'",
+    "exposure_mode_label": "PASS — SHUTTER_PRI (0x0A) sets state.aeMode and publishes 'Shutter Pri' label"
+  }
+}

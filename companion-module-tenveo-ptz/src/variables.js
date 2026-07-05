@@ -19,6 +19,7 @@ export function getVariables() {
 		{ variableId: 'zoom_percent', name: 'Zoom position as percent (0=wide, 100=tele)' },
 		{ variableId: 'focus_position', name: 'Focus position (0-16384)' },
 		{ variableId: 'focus_percent', name: 'Focus position as percent (0=near, 100=far)' },
+		{ variableId: 'focus_mode', name: 'Focus mode (Auto / Manual / One-Push / Locked)' },
 		{ variableId: 'backlight', name: 'Backlight compensation (on/off)' },
 		{ variableId: 'pan_position', name: 'Pan position (raw VISCA units)' },
 		{ variableId: 'tilt_position', name: 'Tilt position (raw VISCA units)' },
