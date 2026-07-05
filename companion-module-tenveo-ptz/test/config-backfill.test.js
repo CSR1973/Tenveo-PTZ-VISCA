@@ -60,7 +60,6 @@ function test2_backfillPopulatesMissingKeys() {
 		'panDegPerSec', 'tiltDegPerSec', 'panCenter', 'panUnitsPerDeg', 'tiltCenter', 'tiltUnitsPerDeg', 'pollInterval']) {
 		assert(`${key} backfilled`, typeof merged[key] === 'number')
 	}
-	assert('osdNavStyle backfilled to default (dropdown)', merged.osdNavStyle === 'cam_menu_nav')
 	assert('verbose backfilled to false (checkbox)', merged.verbose === false)
 	assert('original name preserved', merged.name === 'Cam 11')
 	assert('original host preserved', merged.host === '192.168.88.11')
@@ -75,12 +74,10 @@ function test3_backfillNoopWhenAllKeysPresent() {
 	}
 	// Also user-tweaked values to be sure they survive
 	full.panSpeed = 20
-	full.osdNavStyle = 'broadcast'
 	const saved = []
 	const merged = backfillConfig(full, fields, (c) => saved.push(c), () => {})
 	assert('saveConfig NOT called when nothing missing', saved.length === 0)
 	assert('user-tweaked panSpeed preserved', merged.panSpeed === 20)
-	assert('user-tweaked osdNavStyle preserved', merged.osdNavStyle === 'broadcast')
 }
 
 function test4_backfillTreatsEmptyStringAsMissing() {
@@ -89,14 +86,12 @@ function test4_backfillTreatsEmptyStringAsMissing() {
 		panSpeed: null,
 		tiltSpeed: '',
 		zoomSpeed: undefined,
-		osdNavStyle: '',
 	}
 	const saved = []
 	const merged = backfillConfig(stored, getConfigFields(), (c) => saved.push(c), () => {})
 	assert('null → default', typeof merged.panSpeed === 'number')
 	assert('empty string → default', typeof merged.tiltSpeed === 'number')
 	assert('undefined → default', typeof merged.zoomSpeed === 'number')
-	assert('empty dropdown → default', merged.osdNavStyle === 'cam_menu_nav')
 	assert('saveConfig was called', saved.length === 1)
 }
 

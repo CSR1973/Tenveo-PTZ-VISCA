@@ -68,46 +68,30 @@ async function test4_menuToggleStateFlipUsesOnOffBytes() {
 	assert('2nd toggle sent menuOff bytes (06 06 03)', self.sent[1] && self.sent[1][3] === 0x06 && self.sent[1][4] === 0x03)
 }
 
-async function test5_navigationActionsFire() {
-	console.log('\n[TEST 5] Nav actions dispatch through osdNavStyle (default = cam_menu_nav)')
+async function test5_navigationActionsFireAllStyles() {
+	console.log('\n[TEST 5] Nav actions always broadcast (CAM_Menu-Nav + 3 pt-drive speeds + pt-stop) per v1.17.2')
 	const self = makeSelf()
-	const acts = getActions(self)
-	await acts.menu_up.callback()
-	await acts.menu_down.callback()
-	await acts.menu_enter.callback()
-	await acts.menu_back.callback()
-	assert('menu_up sent nav-up bytes',    bytesEq(self.sent[0], C.menuNavUp()))
-	assert('menu_down sent nav-down bytes',bytesEq(self.sent[1], C.menuNavDown()))
-	assert('menu_enter sent enter bytes',  bytesEq(self.sent[2], C.menuEnter()))
-	assert('menu_back sent back bytes',    bytesEq(self.sent[3], C.menuBack()))
-}
-
-async function test6_ptzDriveStylesSendDifferentBytes() {
-	console.log('\n[TEST 6] osdNavStyle=ptz_drive_* switches to pan/tilt drive bytes at chosen speed')
-	for (const [style, speed] of [['ptz_drive_slow', 3], ['ptz_drive_med', 6], ['ptz_drive_fast', 0x0e]]) {
-		const self = makeSelf()
-		self.config.osdNavStyle = style
-		const acts = getActions(self)
-		await acts.menu_down.callback()
-		const b = self.sent[0]
-		assert(`${style}: bytes = ptDrive DOWN @ speed ${speed}`,
-			b && b[0] === 0x81 && b[1] === 0x01 && b[2] === 0x06 && b[3] === 0x01 && b[4] === speed && b[5] === speed && b[6] === 0x03 && b[7] === 0x02,
-			JSON.stringify(b))
-	}
-}
-
-async function test7_broadcastFiresAllStyles() {
-	console.log('\n[TEST 7] osdNavStyle=broadcast fires CAM_Menu-Nav + 3 pt-drive speeds')
-	const self = makeSelf()
-	self.config.osdNavStyle = 'broadcast'
 	const acts = getActions(self)
 	await acts.menu_up.callback()
 	// Wait for the delayed pt-stop after 150ms
 	await new Promise((r) => setTimeout(r, 220))
-	// Expect 4 fires + 1 stop = 5 total
-	assert('broadcast sent 5 commands (4 nav + 1 stop)', self.sent.length === 5, `got ${self.sent.length}`)
+	assert('menu_up broadcasts 4 nav cmds + 1 stop = 5 sends', self.sent.length === 5, `got ${self.sent.length}`)
 	assert('first cmd = CAM_Menu-Nav up', bytesEq(self.sent[0], C.menuNavUp()))
+	// The 3 pt-drive speeds
+	assert('2nd cmd = ptDrive UP @ speed 3',  self.sent[1][4] === 3   && self.sent[1][6] === 0x03 && self.sent[1][7] === 0x01)
+	assert('3rd cmd = ptDrive UP @ speed 6',  self.sent[2][4] === 6   && self.sent[2][6] === 0x03 && self.sent[2][7] === 0x01)
+	assert('4th cmd = ptDrive UP @ speed 14', self.sent[3][4] === 0x0e && self.sent[3][6] === 0x03 && self.sent[3][7] === 0x01)
 	assert('last cmd = ptStop', bytesEq(self.sent[4], C.menuPtStop()))
+}
+
+async function test6_enterAndBackStillSingleCmd() {
+	console.log('\n[TEST 6] menu_enter / menu_back remain single-cmd (only nav broadcasts)')
+	const self = makeSelf()
+	const acts = getActions(self)
+	await acts.menu_enter.callback()
+	await acts.menu_back.callback()
+	assert('menu_enter sent exactly 1 cmd (enter)', self.sent.length === 2 && bytesEq(self.sent[0], C.menuEnter()))
+	assert('menu_back sent exactly 1 cmd (back)', bytesEq(self.sent[1], C.menuBack()))
 }
 
 ;(async () => {
@@ -115,9 +99,8 @@ async function test7_broadcastFiresAllStyles() {
 	test2_enterAndBackBytes()
 	test3_menuBackNoLongerEqualsMenuOff()
 	await test4_menuToggleStateFlipUsesOnOffBytes()
-	await test5_navigationActionsFire()
-	await test6_ptzDriveStylesSendDifferentBytes()
-	await test7_broadcastFiresAllStyles()
+	await test5_navigationActionsFireAllStyles()
+	await test6_enterAndBackStillSingleCmd()
 
 	const failed = results.filter((r) => !r.ok)
 	const total = results.length

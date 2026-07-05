@@ -58,12 +58,11 @@ function toInt16(x) {
 	return v
 }
 
-/** Dispatch an OSD navigation click through the user's chosen `osdNavStyle`.
- *  Tenveo firmware inconsistency means CAM_Menu-Nav bytes work on some units
- *  and only pan/tilt drive works on others — this switch lets each user pick
- *  the style their firmware speaks (or broadcast all styles at once). */
+/** Dispatch an OSD navigation click. Tenveo VHD20HAN firmware ignores the
+ *  standard CAM_Menu-Nav bytes AND some pt-drive speeds — the only reliable
+ *  way is to fire every known style at once and let the camera respond to
+ *  whichever it understands. (Verified by user field testing v1.17.0.) */
 function osdNav(self, dir) {
-	const style = self.config.osdNavStyle || 'cam_menu_nav'
 	const ptCmd = {
 		up: (s) => C.menuPtDriveUp(s),
 		down: (s) => C.menuPtDriveDown(s),
@@ -77,24 +76,15 @@ function osdNav(self, dir) {
 		right: C.menuNavRight,
 	}[dir]
 
-	if (style === 'cam_menu_nav') {
-		return self.send(camMenuCmd())
-	}
-	if (style === 'ptz_drive_slow') return self.send(ptCmd(3))
-	if (style === 'ptz_drive_med') return self.send(ptCmd(6))
-	if (style === 'ptz_drive_fast') return self.send(ptCmd(0x0e))
-	if (style === 'broadcast') {
-		// Fire CAM_Menu-Nav + pt-drive @ speeds 3, 6, 14. Whatever the firmware
-		// understands wins; the rest are ignored.
-		self.send(camMenuCmd()).catch(() => {})
-		self.send(ptCmd(3)).catch(() => {})
-		self.send(ptCmd(6)).catch(() => {})
-		self.send(ptCmd(0x0e)).catch(() => {})
-		// Send a pt-stop so any accidental physical motion halts after ~150ms.
-		setTimeout(() => self.send(C.menuPtStop()).catch(() => {}), 150)
-		return
-	}
-	return self.send(camMenuCmd())
+	// Fire CAM_Menu-Nav + pt-drive @ speeds 3, 6, 14 — whichever the firmware
+	// understands wins; the rest are silently ignored by the camera.
+	self.send(camMenuCmd()).catch(() => {})
+	self.send(ptCmd(3)).catch(() => {})
+	self.send(ptCmd(6)).catch(() => {})
+	self.send(ptCmd(0x0e)).catch(() => {})
+	// Cancel any residual physical pan/tilt movement that the pt-drive bytes
+	// may have triggered on the (in)correct axis if the menu was not open.
+	setTimeout(() => self.send(C.menuPtStop()).catch(() => {}), 150)
 }
 
 /** Update zoom_position + zoom_percent variables from state.zoomPos (0..16384). */
