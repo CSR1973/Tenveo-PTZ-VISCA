@@ -168,4 +168,9 @@ The setting lives in the connection's config — no rebuild needed when you twea
 
 ## License
 
-MIT — see header in each source file.
+MIT © 2025-2026 César Montegrifo — see [LICENSE](./LICENSE).
+
+## Contributing / Issues
+
+Bug reports and PRs welcome at
+**https://github.com/CSR1973/companion-module-tenveo-ptz/issues**.
