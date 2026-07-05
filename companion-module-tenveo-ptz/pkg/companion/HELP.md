@@ -147,6 +147,7 @@ You can also assign any standard button action to an encoder press; rotation wil
 
 ## Changelog
 
+- **1.17.1** — Fixed Save button greyed out in the connection-edit panel after module upgrades. `init()` and `configUpdated()` now backfill any missing config keys with their defaults from `getConfigFields()` and persist back via `saveConfig()`, so newly-added fields no longer fail Companion's "A value must be provided" validation.
 - **1.17.0** — OSD Nav dispatcher: connection config now has an `OSD Menu Navigation style` dropdown so users can switch between CAM_Menu-Nav (Sony spec), pan/tilt drive at speeds 3 / 6 / 14, or a "broadcast" mode that fires all styles at once — until one of them works on their firmware revision.
 - **1.16.1** — Fixed OSD menu navigation opcodes (CAM_Menu-Nav, CAM_MenuReturn OK/Cancel, tracked toggle).
 - **1.16.0** — New `Rotary TICK: Zoom In/Out` — discrete per-click zoom with instant `zoom_percent` update.

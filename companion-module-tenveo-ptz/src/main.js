@@ -29,8 +29,47 @@ const WB_NAME = {
 }
 
 class TenveoInstance extends InstanceBase {
+	/** Returns { fieldId: defaultValue } for every input in getConfigFields().
+	 *  Used to backfill any config keys that were added by newer module versions
+	 *  but are missing from the user's persisted connection config (which would
+	 *  otherwise fail Companion's "A value must be provided" validation and
+	 *  freeze the Save button in the connection-edit panel). */
+	_configDefaults() {
+		const out = {}
+		for (const f of getConfigFields()) {
+			if (f && f.id && f.type !== 'static-text' && f.default !== undefined) {
+				out[f.id] = f.default
+			}
+		}
+		return out
+	}
+
+	/** Merge missing defaults into config and persist back so the Save button
+	 *  can enable on the very first config-panel open after a module upgrade. */
+	_backfillConfig(config) {
+		const defaults = this._configDefaults()
+		let dirty = false
+		const merged = { ...config }
+		for (const [k, v] of Object.entries(defaults)) {
+			if (merged[k] === undefined || merged[k] === null || merged[k] === '') {
+				merged[k] = v
+				dirty = true
+			}
+		}
+		if (dirty) {
+			try {
+				this.saveConfig(merged)
+				this.log('info', 'Backfilled missing config defaults for keys: ' +
+					Object.keys(defaults).filter((k) => config[k] === undefined || config[k] === null || config[k] === '').join(', '))
+			} catch (e) {
+				this.log('warn', `saveConfig(backfill) failed: ${e?.message || e}`)
+			}
+		}
+		return merged
+	}
+
 	async init(config) {
-		this.config = config
+		this.config = this._backfillConfig(config)
 		this.state = {
 			connected: false,
 			onvifReady: false,
@@ -81,7 +120,7 @@ class TenveoInstance extends InstanceBase {
 	}
 
 	async configUpdated(config) {
-		this.config = config
+		this.config = this._backfillConfig(config)
 		this._publishStaticVars()
 		this._stopPolling()
 		if (this.visca) this.visca.close()
