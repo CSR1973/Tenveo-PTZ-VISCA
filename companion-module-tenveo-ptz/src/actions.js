@@ -1139,7 +1139,7 @@ export function getActions(self) {
 			callback: async ({ options }) => self.send(C.brightDirect(+options.v)),
 		},
 		expcomp_on: {
-			name: 'ExpComp: Manual (On) — apply compensation value',
+			name: 'ExpComp: Enable compensation ON — invisible unless ExpComp value ≠ 0',
 			options: [],
 			callback: async () => {
 				self.state.expCompMode = 'on'
@@ -1149,7 +1149,7 @@ export function getActions(self) {
 			},
 		},
 		expcomp_off: {
-			name: 'ExpComp: Auto (Off) — no compensation',
+			name: 'ExpComp: Disable compensation OFF — camera ignores ExpComp value',
 			options: [],
 			callback: async () => {
 				self.state.expCompMode = 'off'
@@ -1159,7 +1159,7 @@ export function getActions(self) {
 			},
 		},
 		expcomp_toggle: {
-			name: 'ExpComp: Toggle Auto ↔ Manual (compensation on/off)',
+			name: 'ExpComp: Toggle compensation ON ↔ OFF (image only changes if value ≠ 0 — for AE Auto/Manual use "Exposure: Toggle Auto ↔ Manual (AE mode)")',
 			options: [],
 			callback: async () => {
 				const next = self.state.expCompMode === 'on' ? 'off' : 'on'
