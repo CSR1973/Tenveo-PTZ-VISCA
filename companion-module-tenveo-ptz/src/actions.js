@@ -1106,9 +1106,38 @@ export function getActions(self) {
 			options: [],
 			callback: async () => self.send(self.state.power === 'on' ? C.powerOff() : C.powerOn()),
 		},
-		menu_on: { name: 'OSD: Open Menu', options: [], callback: async () => self.send(C.menuOn()) },
-		menu_off: { name: 'OSD: Close Menu', options: [], callback: async () => self.send(C.menuOff()) },
-		menu_toggle: { name: 'OSD: Toggle Menu', options: [], callback: async () => self.send(C.menuToggle()) },
+		menu_on: {
+			name: 'OSD: Open Menu',
+			options: [],
+			callback: async () => {
+				await self.send(C.menuOn())
+				self.state.menuOpen = true
+			},
+		},
+		menu_off: {
+			name: 'OSD: Close Menu',
+			options: [],
+			callback: async () => {
+				await self.send(C.menuOff())
+				self.state.menuOpen = false
+			},
+		},
+		menu_toggle: {
+			name: 'OSD: Toggle Menu (open ↔ close, tracked locally)',
+			options: [],
+			callback: async () => {
+				// The preset-95 (81 01 04 3F 02 5F FF) VISCA-toggle hack does
+				// not work on Tenveo VHD20HAN. Use the reliable on/off pair
+				// and track state locally.
+				if (self.state.menuOpen) {
+					await self.send(C.menuOff())
+					self.state.menuOpen = false
+				} else {
+					await self.send(C.menuOn())
+					self.state.menuOpen = true
+				}
+			},
+		},
 		menu_up: { name: 'OSD: Navigate Up', options: [], callback: async () => self.send(C.menuNavUp()) },
 		menu_down: { name: 'OSD: Navigate Down', options: [], callback: async () => self.send(C.menuNavDown()) },
 		menu_left: { name: 'OSD: Navigate Left', options: [], callback: async () => self.send(C.menuNavLeft()) },

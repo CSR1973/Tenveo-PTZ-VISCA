@@ -20,7 +20,16 @@ Build a Bitfocus Companion 4.x module for Tenveo PTZ cameras (TEVO-VHD20HAN, TEV
 
 ## Implementation Status
 
-### v1.16.0 (2026-02) — Discrete per-tick Zoom Rotary
+### v1.16.1 (2026-02) — OSD menu navigation fix
+- Replaced pan/tilt-drive-based OSD navigation with the correct standard
+  VISCA CAM_Menu-Nav opcodes (`0x06 0x01 0x0E 0x0E …`).
+- `menu_enter` → `0x06 06 05` (CAM_MenuReturn OK), `menu_back` → `0x06 06 04`
+  (was accidentally identical to `menu_off`).
+- `menu_toggle` now tracks `state.menuOpen` locally and sends the reliable
+  on/off bytes (the preset-95 shortcut is not implemented on Tenveo VHD20HAN).
+- Added `test/osd-menu.test.js` (16 assertions).
+
+### v1.16.0 — Discrete per-tick Zoom Rotary
 - New `zoom_rotary_tick_in` / `zoom_rotary_tick_out` actions. Each rotary
   click moves state.zoomPos by a fixed step (default 500 / max 8000 units),
   updates `zoom_position` + `zoom_percent` variables IMMEDIATELY, and sends
@@ -56,7 +65,7 @@ Build a Bitfocus Companion 4.x module for Tenveo PTZ cameras (TEVO-VHD20HAN, TEV
   `actions/image.js`, `actions/preset.js`, etc.
 
 ## Testing
-- `npm test` runs 13 suites, **357 assertions**, all passing (2026-02).
+- `npm test` runs 14 suites, **373 assertions**, all passing (2026-02).
 - Physical hardware testing on `192.168.88.11–14` requires user's local network.
 
 ## Credentials

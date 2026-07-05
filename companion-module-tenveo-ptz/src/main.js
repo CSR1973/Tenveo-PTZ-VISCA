@@ -55,6 +55,7 @@ class TenveoInstance extends InstanceBase {
 			colorTemp: 5600,
 			presetSaveIdx: 1,
 			presetRecallIdx: 1,
+			menuOpen: false,
 		}
 		this._pulseTimers = {}
 
