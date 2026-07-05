@@ -147,6 +147,7 @@ You can also assign any standard button action to an encoder press; rotation wil
 
 ## Changelog
 
+- **1.16.0** — New `Rotary TICK: Zoom In/Out` actions that use discrete per-click steps (`zoomDirect`) and update `zoom_percent` **instantly** on every tick. Use these if the `Rotary HOLD/STEP` variants don't visibly update the percentage on your rotary.
 - **1.15.0** — Rotary preset browsing (SAVE + RECALL rotaries with wrap-around index + PUSH-to-commit). Zoom rotary default idle raised to 800 ms for smoother slow-spin drives.
 - **1.14.2** — Renamed misleading ExpComp action labels (`expcomp_toggle` no longer confusable with AE-mode toggle).
 - **1.14.1** — Fixed upgrade-script return shape (was crashing all connections to red).

@@ -702,6 +702,42 @@ export function getActions(self) {
 			},
 		},
 
+		/* ───────── Rotary TICK zoom (v1.16.0) ─────────
+		 * True discrete-per-click zoom. Each rotary tick moves the zoom by a
+		 * fixed number of units and updates zoom_position / zoom_percent
+		 * IMMEDIATELY — no time-based estimation, no auto-stop drift. The
+		 * VISCA send uses zoomDirect(newPos) so the camera lands exactly
+		 * where the variable claims. Use this when you want the zoom_percent
+		 * variable to move visibly in lock-step with the wheel.        */
+		zoom_rotary_tick_in: {
+			name: 'Rotary TICK: Zoom In (Tele) — discrete step, updates zoom_percent instantly',
+			options: [
+				{ type: 'number', id: 'step', label: 'Units per click (max 16384)', default: 500, min: 10, max: 8000 },
+			],
+			callback: async ({ options }) => {
+				const step = Math.max(1, +options.step || 500)
+				const cur = Math.max(0, Math.min(16384, +self.state.zoomPos || 0))
+				const next = Math.min(16384, cur + step)
+				self.state.zoomPos = next
+				updateZoomVars(self)
+				await self.send(C.zoomDirect(next))
+			},
+		},
+		zoom_rotary_tick_out: {
+			name: 'Rotary TICK: Zoom Out (Wide) — discrete step, updates zoom_percent instantly',
+			options: [
+				{ type: 'number', id: 'step', label: 'Units per click (max 16384)', default: 500, min: 10, max: 8000 },
+			],
+			callback: async ({ options }) => {
+				const step = Math.max(1, +options.step || 500)
+				const cur = Math.max(0, Math.min(16384, +self.state.zoomPos || 0))
+				const next = Math.max(0, cur - step)
+				self.state.zoomPos = next
+				updateZoomVars(self)
+				await self.send(C.zoomDirect(next))
+			},
+		},
+
 		/* ───────── Focus ───────── */
 		focus_auto: {
 			name: 'Focus: Auto On',
