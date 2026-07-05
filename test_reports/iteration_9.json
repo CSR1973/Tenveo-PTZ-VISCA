@@ -1,0 +1,39 @@
+{
+  "summary": "v1.12.0 rotary tracking + expcomp toggle regression: all 7 test suites pass (232 assertions) plus 26 independent verifications. Focus/zoom rotary actions now publish position variables on every click (bug fix confirmed). ExpComp toggle/on/off actions update state, publish exposure_compensation_mode variable, and trigger expcomp_mode_state feedback. inqExpCompMode bytes verified. All 5 src files pass node --check.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/companion-module-tenveo-ptz/test/rotary-track-expcomp-toggle.test.js",
+    "/app/companion-module-tenveo-ptz/test/independent-rotary-expcomp-verify.test.js"
+  ],
+  "action_items": [
+    "OPTIONAL: package.json 'test' script still lists only 6 suites; new rotary-track-expcomp-toggle.test.js not appended. `npm test` will therefore skip the new suite. Recommend appending '&& node test/rotary-track-expcomp-toggle.test.js' to the test script for CI parity."
+  ],
+  "critical_code_review_comments": [
+    "actions.js is large (~1000+ lines) but well-factored via helpers (focusDriveStep/zoomDriveStep); rerouting rotary actions through these helpers is clean and DRY.",
+    "state.expCompMode initialized to 'unknown' — appropriate; poll query inqExpCompMode will populate real value on connect.",
+    "expcomp_toggle correctly branches on current state; when state is 'unknown' the else-branch defaults to sending expCompOn which is a reasonable default.",
+    "All new bytes (inqExpCompMode = 81 09 04 3E FF, expCompOn = 81 01 04 3E 02 FF, expCompOff = 81 01 04 3E 03 FF) match VISCA spec.",
+    "Feedback callback for expcomp_mode_state correctly returns boolean based on self.state.expCompMode === options.state."
+  ],
+  "updated_files": [
+    "/app/companion-module-tenveo-ptz/test/independent-rotary-expcomp-verify.test.js (new, testing agent-authored independent verification)"
+  ],
+  "success_rate": {
+    "backend": "100% (232/232 primary + 26/26 independent = 258/258 assertions)",
+    "frontend": "n/a (backend-only per request)"
+  },
+  "test_credentials": "n/a",
+  "seed_data_creation": "n/a",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "v1.12.0 delivered on 2 promises: (1) focus_rotary_near/far + zoom_rotary_in/out now route through focusDriveStep/zoomDriveStep and publish focus_position/focus_percent/zoom_position/zoom_percent on every click — fully verified with fresh fake self, 15ms spacing, {speed:4, holdMs:300}. (2) expcomp_toggle action added with state.expCompMode tracker, exposure_compensation_mode variable, and expcomp_mode_state feedback — all wired correctly. inqExpCompMode poll entry added. All prior 6 suites still pass unchanged. Only nit: package.json 'test' script not updated to include new suite — main agent should append it for CI. The 'Dev' label in Bitfocus UI is out-of-scope per Bitfocus docs (developer modules path convention).",
+  "rca of the issue": "User bug: focus variables stayed 0 because focus_rotary_near/focus_rotary_far used pulse() semantics that fire-and-forget VISCA without touching state.focusPos or publishing variables. Fix: reroute rotary actions through the same focusDriveStep helper that STEP actions use, which increments state.focusPos, publishes focus_position/focus_percent via setVariableValues, and returns after a short hold. Same pattern applied to zoom rotary. Verified by asserting setVariableValues was called ≥N times with focus_position/zoom_position keys after N clicks."
+}

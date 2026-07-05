@@ -44,6 +44,7 @@ class TenveoInstance extends InstanceBase {
 			irisFstop: 'unknown',
 			shutter: null,
 			expComp: 0,
+			expCompMode: 'unknown',
 			zoomPos: 0,
 			focusPos: 0,
 			blc: 'unknown',
@@ -104,6 +105,7 @@ class TenveoInstance extends InstanceBase {
 			backlight: this.state?.blc ?? 'unknown',
 			iris_fstop: this.state?.irisFstop ?? 'unknown',
 			exposure_compensation: this.state?.expComp ?? 0,
+			exposure_compensation_mode: this.state?.expCompMode ?? 'unknown',
 			color_temp: this.state?.colorTemp ?? 5600,
 			warmth: 0,
 		})
@@ -218,6 +220,7 @@ class TenveoInstance extends InstanceBase {
 				{ q: C.inqPtPos(), set: (r) => this._setPtPos(r) },
 				{ q: C.inqBLC(), set: (r) => this._setBLC(r) },
 				{ q: C.inqExpComp(), set: (r) => this._setExpComp(r) },
+				{ q: C.inqExpCompMode(), set: (r) => this._setExpCompMode(r) },
 			]
 			for (const { q, set } of queries) {
 				const r = await this.visca.inquiry(q)
@@ -338,6 +341,14 @@ class TenveoInstance extends InstanceBase {
 		const v = Math.max(-7, Math.min(7, raw - 7))
 		this.state.expComp = v
 		this.setVariableValues({ exposure_compensation: v })
+	}
+	_setExpCompMode(buf) {
+		const data = C.parseInqReply(buf)
+		if (!data) return
+		const v = data[0] === 0x02 ? 'on' : data[0] === 0x03 ? 'off' : 'unknown'
+		this.state.expCompMode = v
+		this.setVariableValues({ exposure_compensation_mode: v })
+		this.checkFeedbacks('expcomp_mode_state')
 	}
 	_setShutter(buf) {
 		const data = C.parseInqReply(buf)

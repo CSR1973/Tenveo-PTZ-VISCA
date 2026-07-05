@@ -14,6 +14,7 @@ export function getVariables() {
 		{ variableId: 'iris_fstop', name: 'Iris f-stop label (Off, f1.6...f32.0)' },
 		{ variableId: 'shutter', name: 'Shutter value' },
 		{ variableId: 'exposure_compensation', name: 'Exposure Compensation (-7 to +7, 0 = neutral)' },
+		{ variableId: 'exposure_compensation_mode', name: 'Exposure Compensation Mode (on = Manual, off = Auto)' },
 		{ variableId: 'zoom_position', name: 'Zoom position (0-16384)' },
 		{ variableId: 'zoom_percent', name: 'Zoom position as percent (0=wide, 100=tele)' },
 		{ variableId: 'focus_position', name: 'Focus position (0-16384)' },

@@ -39,6 +39,14 @@ export function getFeedbacks(self) {
 			options: [{ type: 'dropdown', id: 'state', label: 'When Backlight is', default: 'on', choices: [{ id: 'on', label: 'On' }, { id: 'off', label: 'Off' }] }],
 			callback: ({ options }) => self.state.blc === options.state,
 		},
+		expcomp_mode_state: {
+			type: 'boolean',
+			name: 'Exposure Compensation Mode',
+			description: 'Highlights when ExpComp is Manual (on) or Auto (off)',
+			defaultStyle: { bgcolor: AMBER, color: BLACK },
+			options: [{ type: 'dropdown', id: 'state', label: 'When ExpComp is', default: 'on', choices: [{ id: 'on', label: 'Manual (On)' }, { id: 'off', label: 'Auto (Off)' }] }],
+			callback: ({ options }) => self.state.expCompMode === options.state,
+		},
 		exposure_mode: {
 			type: 'boolean',
 			name: 'Exposure Mode',

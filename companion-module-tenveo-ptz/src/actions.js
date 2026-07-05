@@ -618,20 +618,24 @@ export function getActions(self) {
 			},
 		},
 		zoom_rotary_in: {
-			name: 'Rotary HOLD: Zoom In',
+			name: 'Rotary HOLD: Zoom In (tracked)',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Speed', default: self.config.zoomSpeed || 4, choices: ZOOM_SPEEDS },
-				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 100, min: 50, max: 2000 },
+				{ type: 'number', id: 'holdMs', label: 'Idle before auto-stop (ms)', default: 200, min: 50, max: 2000 },
 			],
-			callback: async ({ options }) => pulse(self, 'zoom', 'IN', () => C.zoomTeleVar(+options.speed), C.zoomStop, +options.holdMs),
+			callback: async ({ options }) => {
+				zoomDriveStep(self, 'tele', +options.speed, +options.holdMs)
+			},
 		},
 		zoom_rotary_out: {
-			name: 'Rotary HOLD: Zoom Out',
+			name: 'Rotary HOLD: Zoom Out (tracked)',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Speed', default: self.config.zoomSpeed || 4, choices: ZOOM_SPEEDS },
-				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 100, min: 50, max: 2000 },
+				{ type: 'number', id: 'holdMs', label: 'Idle before auto-stop (ms)', default: 200, min: 50, max: 2000 },
 			],
-			callback: async ({ options }) => pulse(self, 'zoom', 'OUT', () => C.zoomWideVar(+options.speed), C.zoomStop, +options.holdMs),
+			callback: async ({ options }) => {
+				zoomDriveStep(self, 'wide', +options.speed, +options.holdMs)
+			},
 		},
 		zoom_step_in: {
 			name: 'Rotary STEP: Zoom In (Tele) — variable-speed drive + auto-stop',
@@ -715,20 +719,24 @@ export function getActions(self) {
 			},
 		},
 		focus_rotary_near: {
-			name: 'Rotary HOLD: Focus Near',
+			name: 'Rotary HOLD: Focus Near (tracked)',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Speed', default: 4, choices: ZOOM_SPEEDS },
-				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 120, min: 50, max: 2000 },
+				{ type: 'number', id: 'holdMs', label: 'Idle before auto-stop (ms)', default: 200, min: 50, max: 2000 },
 			],
-			callback: async ({ options }) => pulse(self, 'focus', 'N', () => C.focusNearVar(+options.speed), C.focusStop, +options.holdMs),
+			callback: async ({ options }) => {
+				focusDriveStep(self, 'near', +options.speed, +options.holdMs)
+			},
 		},
 		focus_rotary_far: {
-			name: 'Rotary HOLD: Focus Far',
+			name: 'Rotary HOLD: Focus Far (tracked)',
 			options: [
 				{ type: 'dropdown', id: 'speed', label: 'Speed', default: 4, choices: ZOOM_SPEEDS },
-				{ type: 'number', id: 'holdMs', label: 'Hold (ms)', default: 120, min: 50, max: 2000 },
+				{ type: 'number', id: 'holdMs', label: 'Idle before auto-stop (ms)', default: 200, min: 50, max: 2000 },
 			],
-			callback: async ({ options }) => pulse(self, 'focus', 'F', () => C.focusFarVar(+options.speed), C.focusStop, +options.holdMs),
+			callback: async ({ options }) => {
+				focusDriveStep(self, 'far', +options.speed, +options.holdMs)
+			},
 		},
 		focus_step_near: {
 			name: 'Rotary STEP: Focus Near — variable-speed drive + auto-stop',
@@ -1017,8 +1025,37 @@ export function getActions(self) {
 			options: [{ type: 'number', id: 'v', label: 'Value', default: 13, min: 0, max: 27 }],
 			callback: async ({ options }) => self.send(C.brightDirect(+options.v)),
 		},
-		expcomp_on: { name: 'ExpComp: On', options: [], callback: async () => self.send(C.expCompOn()) },
-		expcomp_off: { name: 'ExpComp: Off', options: [], callback: async () => self.send(C.expCompOff()) },
+		expcomp_on: {
+			name: 'ExpComp: Manual (On) — apply compensation value',
+			options: [],
+			callback: async () => {
+				self.state.expCompMode = 'on'
+				self.setVariableValues({ exposure_compensation_mode: 'on' })
+				await self.send(C.expCompOn())
+				self.checkFeedbacks('expcomp_mode_state')
+			},
+		},
+		expcomp_off: {
+			name: 'ExpComp: Auto (Off) — no compensation',
+			options: [],
+			callback: async () => {
+				self.state.expCompMode = 'off'
+				self.setVariableValues({ exposure_compensation_mode: 'off' })
+				await self.send(C.expCompOff())
+				self.checkFeedbacks('expcomp_mode_state')
+			},
+		},
+		expcomp_toggle: {
+			name: 'ExpComp: Toggle Auto ↔ Manual',
+			options: [],
+			callback: async () => {
+				const next = self.state.expCompMode === 'on' ? 'off' : 'on'
+				self.state.expCompMode = next
+				self.setVariableValues({ exposure_compensation_mode: next })
+				await self.send(next === 'on' ? C.expCompOn() : C.expCompOff())
+				self.checkFeedbacks('expcomp_mode_state')
+			},
+		},
 		expcomp_up: {
 			name: 'ExpComp: Up',
 			options: [],
