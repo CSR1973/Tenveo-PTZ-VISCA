@@ -66,6 +66,21 @@
 - Mock camera + CLI tester for offline validation
 - Web companion: catalog browser, packet inspector, connection-wizard, CLI snippets
 
+## What's implemented (2026-02-XX — v1.12.0)
+- **Fixed focus/zoom rotary variables that stayed at 0.** Root cause: `focus_rotary_near/far`
+  and `zoom_rotary_in/out` used the old `pulse()` helper that fires drive + auto-stop but never
+  touched `state.focusPos`/`state.zoomPos` or published variables. Rerouted all four actions
+  through `focusDriveStep`/`zoomDriveStep` so they now publish `focus_position`/`focus_percent`/
+  `zoom_position`/`zoom_percent` on every click, same as the STEP actions.
+- **New ExpComp Auto/Manual toggle** — `expcomp_toggle` action flips between Manual (On =
+  compensation applied) and Auto (Off = no compensation). Companion command `expcomp_on` and
+  `expcomp_off` now also track state, publish the new `exposure_compensation_mode` variable
+  ('on'/'off'/'unknown'), and trigger the new `expcomp_mode_state` boolean feedback.
+- New `inqExpCompMode` (`81 09 04 3E FF`) added to the poll cycle so the mode syncs from camera.
+- **"Dev" label** in Companion UI clarified: it's Bitfocus's own convention for any module
+  loaded via the *Developer modules path* — not something the module can override.
+- Tests: 8 suites via `npm test`, 253 assertions total, all pass.
+
 ## What's implemented (2026-02-XX — v1.11.1)
 - **Fixed "new variables never appear + module shows 'dev'"** — `companion/manifest.json.version`
   had been stuck at `1.3.2` across every previous package.json bump. Companion keys its module
